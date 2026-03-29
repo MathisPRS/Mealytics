@@ -21,9 +21,10 @@ app.use(helmet({
     directives: {
       defaultSrc:     ["'self'"],
       scriptSrc:      ["'self'"],
-      styleSrc:       ["'self'", "'unsafe-inline'"],  // Tailwind requires inline styles
+      // Google Fonts loads stylesheets from fonts.googleapis.com, and font files from fonts.gstatic.com
+      styleSrc:       ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
       imgSrc:         ["'self'", 'data:'],
-      fontSrc:        ["'self'"],
+      fontSrc:        ["'self'", 'https://fonts.gstatic.com'],
       connectSrc:     ["'self'"],
       frameSrc:       ["'none'"],
       objectSrc:      ["'none'"],
