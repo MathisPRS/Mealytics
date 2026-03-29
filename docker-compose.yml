@@ -1,0 +1,52 @@
+services:
+
+  # ── PostgreSQL ─────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    container_name: mealytics_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB:       mealytics
+      POSTGRES_USER:     mealytics
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-mealytics_secret}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mealytics -d mealytics"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - internal
+
+  # ── App (Node/Express serves API + static frontend) ────
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: mealytics_app
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      PORT:         4000
+      DB_HOST:      postgres
+      DB_PORT:      5432
+      DB_NAME:      mealytics
+      DB_USER:      mealytics
+      DB_PASSWORD:  ${DB_PASSWORD:-mealytics_secret}
+      JWT_SECRET:   ${JWT_SECRET:-change_me_in_production_please}
+      JWT_EXPIRES:  ${JWT_EXPIRES:-7d}
+      FRONTEND_URL: ${FRONTEND_URL:-http://localhost:8043}
+    ports:
+      - "${APP_PORT:-8043}:4000"
+    networks:
+      - internal
+
+volumes:
+  postgres_data:
+
+networks:
+  internal:
+    driver: bridge
