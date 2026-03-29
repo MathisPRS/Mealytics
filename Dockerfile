@@ -4,7 +4,7 @@ FROM node:20-alpine AS frontend-builder
 WORKDIR /build/frontend
 
 COPY frontend/package*.json ./
-RUN npm ci
+RUN npm ci --legacy-peer-deps
 
 COPY frontend/ ./
 # No VITE_API_URL needed — the Node server serves both API and static files on the same origin
