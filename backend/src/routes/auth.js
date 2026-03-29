@@ -5,14 +5,33 @@ const { signToken } = require('../middleware/auth');
 
 const router = express.Router();
 
+// Basic RFC-compliant email regex
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
 // POST /auth/register
 router.post('/register', async (req, res) => {
   const { email, password, name } = req.body;
+
   if (!email || !password) {
     return res.status(400).json({ error: 'Email et mot de passe requis.' });
   }
-  if (password.length < 6) {
-    return res.status(400).json({ error: 'Le mot de passe doit contenir au moins 6 caractères.' });
+
+  // [H-3] Email format validation
+  if (!EMAIL_RE.test(email) || email.length > 254) {
+    return res.status(400).json({ error: 'Format d\'email invalide.' });
+  }
+
+  // [H-3] Password length: min 8, max 128
+  if (password.length < 8) {
+    return res.status(400).json({ error: 'Le mot de passe doit contenir au moins 8 caractères.' });
+  }
+  if (password.length > 128) {
+    return res.status(400).json({ error: 'Le mot de passe ne peut pas dépasser 128 caractères.' });
+  }
+
+  // [H-3] Name length: max 100 chars
+  if (name && name.trim().length > 100) {
+    return res.status(400).json({ error: 'Le prénom ne peut pas dépasser 100 caractères.' });
   }
 
   const normalizedEmail = email.toLowerCase().trim();
@@ -60,8 +79,12 @@ router.post('/login', async (req, res) => {
   const normalizedEmail = email.toLowerCase().trim();
 
   try {
+    // [H-5] Explicit columns instead of SELECT *
     const result = await pool.query(
-      'SELECT * FROM users WHERE email = $1',
+      `SELECT id, email, password, name, gender, weight, height, age, activity_level,
+              job_activity, sport_activity, metabolism,
+              goal, target_weight, custom_calories, notifications, member_since, onboarded
+       FROM users WHERE email = $1`,
       [normalizedEmail]
     );
     if (result.rows.length === 0) {

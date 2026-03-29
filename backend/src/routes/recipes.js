@@ -26,6 +26,17 @@ router.post('/', async (req, res) => {
   if (!name || !Array.isArray(ingredients)) {
     return res.status(400).json({ error: 'name et ingredients requis.' });
   }
+
+  // Validate name length
+  if (name.trim().length === 0 || name.length > 200) {
+    return res.status(400).json({ error: 'Le nom de la recette doit contenir entre 1 et 200 caractères.' });
+  }
+
+  // Limit number of ingredients
+  if (ingredients.length > 100) {
+    return res.status(400).json({ error: 'Une recette ne peut pas contenir plus de 100 ingrédients.' });
+  }
+
   try {
     const result = await pool.query(
       `INSERT INTO recipes (user_id, name, ingredients)
@@ -43,6 +54,22 @@ router.post('/', async (req, res) => {
 // PUT /api/recipes/:id
 router.put('/:id', async (req, res) => {
   const { name, ingredients, liked } = req.body;
+
+  // Validate name if provided
+  if (name !== undefined && (name.trim().length === 0 || name.length > 200)) {
+    return res.status(400).json({ error: 'Le nom de la recette doit contenir entre 1 et 200 caractères.' });
+  }
+
+  // Validate ingredients if provided
+  if (ingredients !== undefined) {
+    if (!Array.isArray(ingredients)) {
+      return res.status(400).json({ error: 'ingredients doit être un tableau.' });
+    }
+    if (ingredients.length > 100) {
+      return res.status(400).json({ error: 'Une recette ne peut pas contenir plus de 100 ingrédients.' });
+    }
+  }
+
   try {
     const fields = [];
     const values = [];

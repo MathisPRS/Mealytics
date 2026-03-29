@@ -26,13 +26,30 @@ router.post('/', async (req, res) => {
   if (!date || weight === undefined) {
     return res.status(400).json({ error: 'date et weight requis.' });
   }
+
+  // Validate date format YYYY-MM-DD
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || isNaN(Date.parse(date))) {
+    return res.status(400).json({ error: 'Format de date invalide (YYYY-MM-DD attendu).' });
+  }
+
+  // Validate weight: positive number, max 500 kg
+  const w = parseFloat(weight);
+  if (isNaN(w) || w <= 0 || w > 500) {
+    return res.status(400).json({ error: 'Le poids doit être un nombre positif inférieur à 500 kg.' });
+  }
+
+  // Validate note length
+  if (note && note.length > 1000) {
+    return res.status(400).json({ error: 'La note ne peut pas dépasser 1000 caractères.' });
+  }
+
   try {
     const result = await pool.query(
       `INSERT INTO weight_log (user_id, log_date, weight, note)
        VALUES ($1, $2, $3, $4)
        ON CONFLICT (user_id, log_date) DO UPDATE SET weight = EXCLUDED.weight, note = EXCLUDED.note
        RETURNING id, log_date AS date, weight, note`,
-      [req.user.id, date, parseFloat(weight), note || '']
+      [req.user.id, date, w, note || '']
     );
     return res.status(201).json(result.rows[0]);
   } catch (err) {

@@ -90,8 +90,13 @@ const SCHEMA = `
 async function migrate() {
   const client = await pool.connect();
   try {
+    await client.query('BEGIN');
     await client.query(SCHEMA);
+    await client.query('COMMIT');
     console.log('[DB] Schema migrated successfully');
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
   } finally {
     client.release();
   }

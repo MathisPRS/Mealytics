@@ -1,22 +1,40 @@
 require('dotenv').config();
-const express  = require('express');
-const cors     = require('cors');
-const helmet   = require('helmet');
-const path     = require('path');
-const fs       = require('fs');
+const express   = require('express');
+const cors      = require('cors');
+const helmet    = require('helmet');
+const rateLimit = require('express-rate-limit');
+const path      = require('path');
+const fs        = require('fs');
 const { migrate } = require('./db/migrate');
 
 const app  = express();
 const PORT = process.env.PORT || 4000;
 
-// ── Security ──────────────────────────────────────────────
-// In production (container) frontend and API share the same origin — CORS only
-// needed for local dev (Vite on :5173 talking to Node on :4000).
+// ── Warn on missing FRONTEND_URL in production ──────────────
+if (process.env.NODE_ENV === 'production' && !process.env.FRONTEND_URL) {
+  console.warn('[Mealytics] WARNING: FRONTEND_URL is not set. CORS will only allow same-origin requests.');
+}
+
+// ── Security headers ────────────────────────────────────────
 app.use(helmet({
-  // Allow the SPA's inline scripts / styles served by the same server
-  contentSecurityPolicy: false,
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc:     ["'self'"],
+      scriptSrc:      ["'self'"],
+      styleSrc:       ["'self'", "'unsafe-inline'"],  // Tailwind requires inline styles
+      imgSrc:         ["'self'", 'data:'],
+      fontSrc:        ["'self'"],
+      connectSrc:     ["'self'"],
+      frameSrc:       ["'none'"],
+      objectSrc:      ["'none'"],
+      upgradeInsecureRequests: [],
+    },
+  },
 }));
 
+// ── CORS ─────────────────────────────────────────────────────
+// In production (container) frontend and API share the same origin — CORS only
+// needed for local dev (Vite on :5173 talking to Node on :4000).
 app.use(cors({
   origin: (origin, cb) => {
     // Same-origin requests have no Origin header — always allow
@@ -32,7 +50,27 @@ app.use(cors({
   credentials: true,
 }));
 
-app.use(express.json());
+// ── Body parsing — limit payload size ───────────────────────
+app.use((req, res, next) => {
+  const ct = req.headers['content-type'];
+  // For routes that accept JSON, reject non-JSON Content-Type
+  if (req.method !== 'GET' && req.method !== 'DELETE' && ct && !ct.includes('application/json')) {
+    return res.status(415).json({ error: 'Content-Type doit être application/json.' });
+  }
+  next();
+});
+app.use(express.json({ limit: '50kb' }));
+
+// ── Rate limiting on auth routes ─────────────────────────────
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 20,                   // max 20 requests per window per IP
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Trop de tentatives. Réessayez dans 15 minutes.' },
+});
+app.use('/auth/login',    authLimiter);
+app.use('/auth/register', authLimiter);
 
 // ── Health check ──────────────────────────────────────────
 app.get('/health', (_req, res) => res.json({ status: 'ok' }));
