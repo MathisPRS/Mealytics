@@ -1,0 +1,382 @@
+import { useState, useEffect, useRef } from 'react'
+import { BrowserMultiFormatReader } from '@zxing/browser'
+
+// ── Fetch product from Open Food Facts ─────────────────────────────
+async function fetchProductByBarcode(barcode) {
+  const res = await fetch(
+    `https://world.openfoodfacts.org/api/v0/product/${barcode}.json`,
+    { signal: AbortSignal.timeout(8000) }
+  )
+  if (!res.ok) throw new Error('Erreur réseau')
+  const data = await res.json()
+  if (data.status !== 1) return null // product not found
+
+  const p = data.product
+  const n = p.nutriments || {}
+
+  const name = p.product_name_fr || p.product_name || p.abbreviated_product_name || ''
+  if (!name) return null
+
+  const calories = parseFloat(n['energy-kcal_100g'] ?? n['energy-kcal'] ?? 0)
+  const protein  = parseFloat(n['proteins_100g']    ?? n['proteins']    ?? 0)
+  const carbs    = parseFloat(n['carbohydrates_100g']?? n['carbohydrates']?? 0)
+  const fat      = parseFloat(n['fat_100g']          ?? n['fat']          ?? 0)
+
+  return {
+    id:          `barcode_${barcode}`,
+    name,
+    emoji:       '🛒',
+    defaultQty:  100,
+    defaultUnit: 'g',
+    calories:    Math.round(calories * 10) / 10,
+    protein:     Math.round(protein  * 10) / 10,
+    carbs:       Math.round(carbs    * 10) / 10,
+    fat:         Math.round(fat      * 10) / 10,
+    category:    'Scanné',
+    barcode,
+    incomplete:  calories === 0 && protein === 0 && carbs === 0 && fat === 0,
+  }
+}
+
+// ── Manual entry form ──────────────────────────────────────────────
+function ManualEntryForm({ barcode, prefillName, onConfirm, onCancel }) {
+  const [name,     setName]     = useState(prefillName || '')
+  const [calories, setCalories] = useState('')
+  const [protein,  setProtein]  = useState('')
+  const [carbs,    setCarbs]    = useState('')
+  const [fat,      setFat]      = useState('')
+
+  const valid = name.trim() && parseFloat(calories) >= 0
+
+  const handleSubmit = () => {
+    if (!valid) return
+    onConfirm({
+      id:          `barcode_${barcode || 'manual_' + Date.now()}`,
+      name:        name.trim(),
+      emoji:       '🛒',
+      defaultQty:  100,
+      defaultUnit: 'g',
+      calories:    parseFloat(calories) || 0,
+      protein:     parseFloat(protein)  || 0,
+      carbs:       parseFloat(carbs)    || 0,
+      fat:         parseFloat(fat)      || 0,
+      category:    'Scanné',
+      barcode,
+    })
+  }
+
+  return (
+    <div className="flex flex-col h-full">
+      <div className="flex items-center gap-3 px-5 py-4 border-b border-surface-container">
+        <button onClick={onCancel} className="p-2 rounded-full hover:bg-surface-container transition-colors">
+          <span className="material-symbols-outlined text-primary">arrow_back</span>
+        </button>
+        <div>
+          <h2 className="font-headline font-bold text-lg">Saisie manuelle</h2>
+          {barcode && <p className="text-xs text-outline">Code : {barcode}</p>}
+        </div>
+      </div>
+
+      <div className="flex-1 overflow-y-auto px-5 py-5 space-y-4">
+        <p className="text-sm text-outline">
+          Renseigne les informations nutritionnelles <span className="font-semibold text-on-surface">pour 100g</span>.
+        </p>
+
+        {/* Nom */}
+        <div className="space-y-1.5">
+          <label className="text-xs font-bold text-outline uppercase tracking-wider">Nom du produit *</label>
+          <input
+            type="text"
+            value={name}
+            onChange={e => setName(e.target.value)}
+            placeholder="Ex: Yaourt nature Danone"
+            className="w-full bg-surface-container-low rounded-2xl py-3.5 px-4 text-sm outline-none focus:ring-2 focus:ring-primary/20 focus:bg-surface-container-lowest transition-all"
+          />
+        </div>
+
+        {/* Grid macros */}
+        <div className="grid grid-cols-2 gap-3">
+          {[
+            { label: 'Calories (kcal)', key: 'calories', val: calories, set: setCalories, color: 'text-primary', required: true },
+            { label: 'Protéines (g)',   key: 'protein',  val: protein,  set: setProtein,  color: 'text-secondary' },
+            { label: 'Glucides (g)',    key: 'carbs',    val: carbs,    set: setCarbs,    color: 'text-primary' },
+            { label: 'Lipides (g)',     key: 'fat',      val: fat,      set: setFat,      color: 'text-tertiary' },
+          ].map(f => (
+            <div key={f.key} className="space-y-1.5">
+              <label className="text-xs font-bold text-outline uppercase tracking-wider">
+                {f.label}{f.required ? ' *' : ''}
+              </label>
+              <input
+                type="number"
+                min="0"
+                step="0.1"
+                value={f.val}
+                onChange={e => f.set(e.target.value)}
+                placeholder="0"
+                className={`w-full bg-surface-container-low rounded-2xl py-3.5 px-4 text-sm font-bold ${f.color} outline-none focus:ring-2 focus:ring-primary/20 focus:bg-surface-container-lowest transition-all`}
+              />
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div className="px-5 pb-8 pt-3">
+        <button
+          onClick={handleSubmit}
+          disabled={!valid}
+          className="w-full bg-primary text-on-primary font-headline font-bold py-4 rounded-full shadow-lg shadow-primary/20 disabled:opacity-40 disabled:cursor-not-allowed active:scale-[0.98] transition-all"
+        >
+          Utiliser ce produit
+        </button>
+      </div>
+    </div>
+  )
+}
+
+// ── Main scanner modal ──────────────────────────────────────────────
+export default function BarcodeScannerModal({ onProductFound, onClose }) {
+  const videoRef  = useRef(null)
+  const readerRef = useRef(null)
+
+  // scanning | loading | found | not_found | error | incomplete | manual
+  const [phase,    setPhase]    = useState('scanning')
+  const [message,  setMessage]  = useState('')
+  const [product,  setProduct]  = useState(null)
+  const [barcode,  setBarcode]  = useState(null)
+  const [prefill,  setPrefill]  = useState('')
+
+  // Start camera & scanner
+  useEffect(() => {
+    let stopped = false
+
+    const start = async () => {
+      try {
+        const reader = new BrowserMultiFormatReader()
+        readerRef.current = reader
+
+        await reader.decodeFromVideoDevice(
+          undefined, // use default back camera
+          videoRef.current,
+          async (result, err) => {
+            if (stopped) return
+            if (result) {
+              stopped = true
+              const ean = result.getText()
+              setBarcode(ean)
+
+              // Stop scanning
+              try { reader.reset() } catch {}
+
+              setPhase('loading')
+              try {
+                const prod = await fetchProductByBarcode(ean)
+                if (!prod) {
+                  setPhase('not_found')
+                } else if (prod.incomplete) {
+                  setPrefill(prod.name)
+                  setPhase('incomplete')
+                } else {
+                  setProduct(prod)
+                  setPhase('found')
+                }
+              } catch {
+                setMessage('Impossible de contacter Open Food Facts.')
+                setPhase('error')
+              }
+            }
+            // Ignore scan misses (no barcode in frame yet)
+            if (err && !err.message?.toLowerCase().includes('no multiformat')) {
+              console.warn('[scanner]', err)
+            }
+          }
+        )
+      } catch (e) {
+        setMessage(
+          e.name === 'NotAllowedError'
+            ? 'Accès à la caméra refusé. Autorise la caméra dans les réglages du navigateur.'
+            : 'Caméra non disponible sur cet appareil.'
+        )
+        setPhase('error')
+      }
+    }
+
+    start()
+
+    return () => {
+      stopped = true
+      try { readerRef.current?.reset() } catch {}
+    }
+  }, [])
+
+  // ── Phases UI ──────────────────────────────────────────────────
+
+  // Manual form (not_found / incomplete / explicit manual)
+  if (phase === 'manual' || phase === 'not_found' || phase === 'incomplete') {
+    return (
+      <div className="fixed inset-0 z-[70] flex flex-col bg-surface">
+        <ManualEntryForm
+          barcode={barcode}
+          prefillName={prefill}
+          onConfirm={prod => {
+            onProductFound(prod)
+          }}
+          onCancel={onClose}
+        />
+      </div>
+    )
+  }
+
+  // Found
+  if (phase === 'found' && product) {
+    return (
+      <div className="fixed inset-0 z-[70] flex flex-col bg-surface">
+        <div className="flex items-center gap-3 px-5 py-4 border-b border-surface-container">
+          <button onClick={onClose} className="p-2 rounded-full hover:bg-surface-container transition-colors">
+            <span className="material-symbols-outlined text-primary">arrow_back</span>
+          </button>
+          <h2 className="font-headline font-bold text-lg">Produit trouvé</h2>
+        </div>
+
+        <div className="flex-1 px-5 py-6 space-y-5 overflow-y-auto">
+          {/* Product card */}
+          <div className="bg-surface-container-low rounded-2xl p-5 flex items-center gap-4">
+            <div className="w-14 h-14 rounded-2xl bg-surface-container flex items-center justify-center text-3xl flex-shrink-0">
+              🛒
+            </div>
+            <div className="min-w-0">
+              <h3 className="font-headline font-bold text-base text-on-surface leading-tight">{product.name}</h3>
+              <p className="text-xs text-outline mt-0.5">Pour 100g · Code {barcode}</p>
+            </div>
+          </div>
+
+          {/* Nutrition grid */}
+          <div className="grid grid-cols-4 gap-2">
+            {[
+              { label: 'Kcal',   value: product.calories, color: 'text-primary'   },
+              { label: 'Prot.',  value: `${product.protein}g`,  color: 'text-secondary' },
+              { label: 'Gluc.', value: `${product.carbs}g`,   color: 'text-primary'   },
+              { label: 'Lip.',   value: `${product.fat}g`,     color: 'text-tertiary'  },
+            ].map(n => (
+              <div key={n.label} className="bg-surface-container-low rounded-xl p-3 text-center">
+                <p className={`font-headline font-bold text-sm ${n.color}`}>{n.value}</p>
+                <p className="text-[10px] text-outline font-bold uppercase mt-0.5">{n.label}</p>
+              </div>
+            ))}
+          </div>
+
+          <p className="text-xs text-outline text-center">
+            Source : Open Food Facts · Valeurs pour 100g
+          </p>
+        </div>
+
+        <div className="px-5 pb-8 pt-3 space-y-3">
+          <button
+            onClick={() => onProductFound(product)}
+            className="w-full bg-primary text-on-primary font-headline font-bold py-4 rounded-full shadow-lg shadow-primary/20 active:scale-[0.98] transition-all"
+          >
+            Ajouter ce produit
+          </button>
+          <button
+            onClick={() => { setPrefill(product.name); setPhase('manual') }}
+            className="w-full bg-surface-container text-on-surface font-headline font-semibold py-3.5 rounded-full active:scale-[0.98] transition-all"
+          >
+            Modifier les valeurs
+          </button>
+        </div>
+      </div>
+    )
+  }
+
+  // Scanning / loading / error — camera view
+  return (
+    <div className="fixed inset-0 z-[70] bg-black flex flex-col">
+      {/* Video feed */}
+      <video
+        ref={videoRef}
+        className="absolute inset-0 w-full h-full object-cover"
+        muted
+        playsInline
+      />
+
+      {/* Dark overlay with cutout */}
+      <div className="absolute inset-0 flex flex-col items-center justify-center">
+        {/* Top overlay */}
+        <div className="absolute top-0 left-0 right-0 h-[25%] bg-black/60" />
+        {/* Bottom overlay */}
+        <div className="absolute bottom-0 left-0 right-0 h-[35%] bg-black/60" />
+        {/* Left overlay */}
+        <div className="absolute left-0 top-[25%] bottom-[35%] w-[8%] bg-black/60" />
+        {/* Right overlay */}
+        <div className="absolute right-0 top-[25%] bottom-[35%] w-[8%] bg-black/60" />
+
+        {/* Scan frame */}
+        <div className="relative w-[84%] aspect-[3/2]">
+          {/* Corner brackets */}
+          {[
+            'top-0 left-0 border-t-4 border-l-4 rounded-tl-lg',
+            'top-0 right-0 border-t-4 border-r-4 rounded-tr-lg',
+            'bottom-0 left-0 border-b-4 border-l-4 rounded-bl-lg',
+            'bottom-0 right-0 border-b-4 border-r-4 rounded-br-lg',
+          ].map((cls, i) => (
+            <div key={i} className={`absolute w-8 h-8 border-white ${cls}`} />
+          ))}
+
+          {/* Scanning line animation */}
+          {phase === 'scanning' && (
+            <div className="absolute left-2 right-2 top-0 h-0.5 bg-primary/80 animate-[scanline_2s_ease-in-out_infinite]"
+              style={{ animation: 'scanline 2s ease-in-out infinite' }}
+            />
+          )}
+        </div>
+      </div>
+
+      {/* Header */}
+      <div className="relative z-10 flex items-center justify-between px-5 pt-12 pb-4">
+        <button
+          onClick={onClose}
+          className="w-10 h-10 rounded-full bg-black/40 flex items-center justify-center"
+        >
+          <span className="material-symbols-outlined text-white">close</span>
+        </button>
+        <h2 className="font-headline font-bold text-white text-lg">Scanner un produit</h2>
+        <div className="w-10" />
+      </div>
+
+      {/* Bottom panel */}
+      <div className="relative z-10 mt-auto px-5 pb-10 flex flex-col items-center gap-4">
+        {phase === 'scanning' && (
+          <>
+            <p className="text-white/80 text-sm text-center font-medium">
+              Pointe la caméra vers le code-barres du produit
+            </p>
+            <button
+              onClick={() => { setPhase('manual'); setBarcode(null) }}
+              className="bg-white/20 text-white font-semibold text-sm px-6 py-3 rounded-full border border-white/30 active:scale-95 transition-transform"
+            >
+              Saisir manuellement
+            </button>
+          </>
+        )}
+
+        {phase === 'loading' && (
+          <div className="flex items-center gap-3 bg-black/50 rounded-2xl px-6 py-4">
+            <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+            <p className="text-white font-medium text-sm">Recherche du produit...</p>
+          </div>
+        )}
+
+        {phase === 'error' && (
+          <div className="bg-black/60 rounded-2xl px-5 py-4 space-y-3 w-full">
+            <p className="text-white text-sm text-center">{message}</p>
+            <button
+              onClick={() => { setPhase('manual'); setBarcode(null) }}
+              className="w-full bg-primary text-on-primary font-semibold text-sm py-3 rounded-full active:scale-95 transition-transform"
+            >
+              Saisir manuellement
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}

@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useApp, todayKey } from '../contexts/AppContext'
 import AddFoodModal from '../components/AddFoodModal'
+import { getFoodById } from '../data/foods'
 
 const MEAL_CONFIG = [
   {
@@ -206,11 +207,14 @@ function MealSection({ meal, date, onAdd, onRemove }) {
       {expanded && entries.length > 0 && (
         <div className="border-t border-surface-container">
           <div className="px-3 pt-1.5 space-y-0.5">
-            {entries.map(entry => (
+            {entries.map(entry => {
+              const entryFood = getFoodById(entry.food_id || entry.foodId)
+              const entryEmoji = entryFood?.emoji ?? '🍽️'
+              return (
               <div key={entry.id} className="flex items-center justify-between py-2 border-b border-surface-container last:border-0">
                 <div className="flex items-center gap-2 flex-1 min-w-0">
                   <div className="w-7 h-7 rounded-lg bg-surface-container flex items-center justify-center text-sm flex-shrink-0">
-                    🍽️
+                    {entryEmoji}
                   </div>
                   <div className="min-w-0 flex-1">
                     <p className="font-semibold text-xs text-on-surface truncate">{entry.food_name || entry.name}</p>
@@ -234,7 +238,8 @@ function MealSection({ meal, date, onAdd, onRemove }) {
                   </button>
                 </div>
               </div>
-            ))}
+              )
+            })}
           </div>
           <div className="mx-3 mb-3 mt-1.5 bg-surface-container-low rounded-lg px-3 py-2 flex items-center justify-between">
             <div className="flex items-center gap-2 text-[10px] font-semibold text-outline">

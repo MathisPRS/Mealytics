@@ -325,3 +325,19 @@ Calculées selon les références ISSN / ANSES / Morton 2018, différenciées pa
 - Limite de payload JSON : 50 ko
 - Rejet des requêtes non-JSON sur les routes mutantes
 - Hachage des mots de passe : bcrypt, coût 12, longueur 8–128 caractères
+
+
+## Reste à faire :
+
+Feature a rajouter : 
+- Liste des aliments les plus nuttritifs par catégorie: lipidue, glucide, proteine : a mettre dans un nouvelle onglet dnas Profil : s'Informer
+- Résumé Hebdommadaire : La semaine en un coups d'oeil : Calorie Brulé, Calorie Consigné (graph ) ,puis liste glabalo de tout se que tu as manger : sucres, Acide gras, fibre etc etc
+- Dans journal pour ajouter de leau on clique le component pour s'hrdater ça nous permet de choisir son contnenant : verre,tasse, bouteile, puis une fois qu'on a choisi on fairt plsu pou savoir combien j'en ai pris et on 
+- Dans ajout d'un aliment :Ajout bouton Scan de code-barre pour scanner des produit --> Puis ducoup sauvegarder le produit en nouvelle Aliment
+
+Pas important
+- Ajout une NAV Sport : Vos Pas, Séance de sport, Possibilité de renseigner ces perf de sport ?
+- Jeune intermitent
+
+
+

@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+
+<html class="light" lang="fr"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@700;800&amp;family=Manrope:wght@500;600&amp;family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    colors: {
+                        "primary": "#006857",
+                        "on-tertiary": "#ffffff",
+                        "primary-fixed": "#7cf8da",
+                        "surface-container-highest": "#e1e3e4",
+                        "on-primary-fixed": "#00201a",
+                        "tertiary": "#005bb3",
+                        "secondary-fixed": "#ffdad8",
+                        "surface": "#f8fafb",
+                        "tertiary-fixed-dim": "#a9c7ff",
+                        "surface-variant": "#e1e3e4",
+                        "on-secondary": "#ffffff",
+                        "inverse-primary": "#5ddbbe",
+                        "on-primary-fixed-variant": "#005143",
+                        "inverse-surface": "#2e3132",
+                        "background": "#f8fafb",
+                        "error": "#ba1a1a",
+                        "on-tertiary-fixed-variant": "#00468c",
+                        "secondary": "#ae2f34",
+                        "primary-fixed-dim": "#5ddbbe",
+                        "on-surface-variant": "#3d4945",
+                        "surface-tint": "#006b59",
+                        "surface-container-lowest": "#ffffff",
+                        "outline-variant": "#bccac4",
+                        "on-secondary-fixed-variant": "#8c1520",
+                        "error-container": "#ffdad6",
+                        "surface-container-low": "#f2f4f5",
+                        "surface-dim": "#d8dadb",
+                        "on-tertiary-container": "#fefcff",
+                        "tertiary-fixed": "#d6e3ff",
+                        "outline": "#6d7a75",
+                        "on-tertiary-fixed": "#001b3e",
+                        "on-secondary-container": "#6d0010",
+                        "surface-container-high": "#e6e8e9",
+                        "primary-container": "#00846e",
+                        "on-background": "#191c1d",
+                        "on-surface": "#191c1d",
+                        "surface-container": "#eceeef",
+                        "on-primary": "#ffffff",
+                        "on-error": "#ffffff",
+                        "on-primary-container": "#f4fffa",
+                        "on-error-container": "#93000a",
+                        "secondary-fixed-dim": "#ffb3b0",
+                        "secondary-container": "#ff6b6b",
+                        "on-secondary-fixed": "#410006",
+                        "surface-bright": "#f8fafb",
+                        "tertiary-container": "#1a73da",
+                        "inverse-on-surface": "#eff1f2"
+                    },
+                    fontFamily: {
+                        "headline": ["Plus Jakarta Sans"],
+                        "body": ["Manrope"],
+                        "label": ["Manrope"]
+                    },
+                    borderRadius: { "DEFAULT": "0.25rem", "lg": "0.5rem", "xl": "0.75rem", "2xl": "1.5rem", "full": "9999px" },
+                },
+            },
+        }
+    </script>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        body {
+            font-family: 'Manrope', sans-serif;
+            background-color: #f8fafb;
+            color: #191c1d;
+        }
+    </style>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+  </head>
+<body class="bg-surface pb-32">
+<header class="w-full sticky top-0 z-50 bg-[#f8fafb] dark:bg-slate-950 flex items-center justify-between px-6 py-4">
+<div class="flex items-center gap-4">
+<button class="active:scale-95 duration-200 text-[#006857] dark:text-teal-400">
+<span class="material-symbols-outlined" data-icon="arrow_back">arrow_back</span>
+</button>
+<h1 class="font-['Plus_Jakarta_Sans'] font-bold tracking-tight text-2xl text-on-surface">Ajouter un aliment</h1>
+</div>
+<button class="active:scale-95 duration-200 text-[#006857] dark:text-teal-400">
+<span class="material-symbols-outlined" data-icon="barcode_scanner">barcode_scanner</span>
+</button>
+</header>
+<main class="px-6 space-y-8 max-w-2xl mx-auto">
+<section class="mt-4">
+<div class="relative flex items-center">
+<div class="absolute left-4 text-outline">
+<span class="material-symbols-outlined" data-icon="search">search</span>
+</div>
+<input class="w-full h-14 pl-12 pr-14 bg-surface-container-low border-none rounded-2xl focus:ring-2 focus:ring-primary/20 focus:bg-surface-container-lowest font-body transition-all outline-none" placeholder="Rechercher un aliment..." type="text"/>
+<div class="absolute right-4 text-primary">
+<span class="material-symbols-outlined" data-icon="barcode_scanner">barcode_scanner</span>
+</div>
+</div>
+</section>
+<nav class="flex space-x-8 border-none overflow-x-auto no-scrollbar">
+<button class="text-[#006857] dark:text-teal-400 font-bold border-b-2 border-primary pb-2 whitespace-nowrap font-headline">Récents</button>
+<button class="text-slate-500 dark:text-slate-400 font-semibold pb-2 whitespace-nowrap font-headline hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors px-2 rounded-lg">Favoris</button>
+<button class="text-slate-500 dark:text-slate-400 font-semibold pb-2 whitespace-nowrap font-headline hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors px-2 rounded-lg">Mes Recettes</button>
+</nav>
+<section class="space-y-4">
+<div class="flex items-center justify-between">
+<h2 class="font-headline font-bold text-lg tracking-tight">Dans ce repas</h2>
+<span class="bg-primary/10 text-primary px-3 py-1 rounded-full text-xs font-bold">2 aliments</span>
+</div>
+<div class="bg-surface-container-lowest rounded-2xl p-5 shadow-[0_-4px_24px_rgba(0,0,0,0.04)] space-y-4">
+<div class="flex items-center justify-between">
+<div class="flex items-center gap-4">
+<div class="w-12 h-12 rounded-xl overflow-hidden bg-surface-container">
+<img class="w-full h-full object-cover" data-alt="glass of fresh squeezed orange juice with pulp on a bright morning table with citrus slices" src="https://lh3.googleusercontent.com/aida-public/AB6AXuAFifLWusHRfpDRVVl2ej1Hw3bFKumJzU4dHR6FSDZqLJ10kPUIc04oiHarHKoU4Jsi1kU3HGQmYoyjjce0mwq_77xVEPmg4xQFY2zLbd0FYEPyyuHNJhi2Cip9Aap6fHWMZCYtrwx3q1wWJgWu-dA5FjeWk00GwLbcM-8nafXIP-yO-rY3vVW1OA7UcqL49Wb3RlCUO0iIb0BmNS0X9HLImFarfcWzR3tuEWBqzdE2oAJgOqWR_oTnlPTjTbZWb96jBScwtEFVJM5K"/>
+</div>
+<div>
+<p class="font-body font-bold text-on-surface">Jus d'orange</p>
+<p class="text-xs text-outline font-medium">200ml • 90 kcal</p>
+</div>
+</div>
+<button class="text-secondary active:scale-95 transition-transform p-2">
+<span class="material-symbols-outlined" data-icon="close">close</span>
+</button>
+</div>
+<div class="flex items-center justify-between">
+<div class="flex items-center gap-4">
+<div class="w-12 h-12 rounded-xl overflow-hidden bg-surface-container">
+<img class="w-full h-full object-cover" data-alt="organic creamy whole milk yogurt in a ceramic bowl with minimalist lighting" src="https://lh3.googleusercontent.com/aida-public/AB6AXuC_cbhu_Rcbv01tf4EpIF8rQOSknRKphjOVi5n9VQ3pmw5n8NyE9QQzYyalvJbi3MslFiHiNHow2UceSu5F9ZkkcUkDTW_PmE15TwTvVDtjms3dZ4pO9kDAAbq17-u1udwC6vQrJ5yronPd7Un41FRexs0GyUpir8unyTDnYwOoANKBpKKC2e_tPoHRqiP-rDObFu8yc-Is5HiHnmCFfQ56vhBUBUBNUrp6IkmkdbqJr-bHySyW-QcHlsXMTXE9Kwvvb1xLRD4Rm7_7"/>
+</div>
+<div>
+<p class="font-body font-bold text-on-surface">Yaourt Nature</p>
+<p class="text-xs text-outline font-medium">125g • 75 kcal</p>
+</div>
+</div>
+<button class="text-secondary active:scale-95 transition-transform p-2">
+<span class="material-symbols-outlined" data-icon="close">close</span>
+</button>
+</div>
+<div class="pt-4 mt-2 border-t border-outline-variant/15 flex justify-between items-center">
+<span class="font-headline font-bold text-on-surface">Total</span>
+<span class="font-headline font-extrabold text-primary text-xl">165 kcal</span>
+</div>
+</div>
+</section>
+<section class="space-y-6">
+<h2 class="font-headline font-bold text-lg tracking-tight">Aliments Récents</h2>
+<div class="space-y-4">
+<div class="bg-surface-container-lowest rounded-2xl p-4 flex items-center justify-between hover:bg-surface-container-low transition-colors duration-200">
+<div class="flex items-center gap-4">
+<div class="w-14 h-14 rounded-2xl overflow-hidden">
+<img class="w-full h-full object-cover" data-alt="slice of grainy sourdough bread with sunflower seeds on a white marble surface" src="https://lh3.googleusercontent.com/aida-public/AB6AXuDYQmKoorHKoh83XeCiDir-5z2ckbGaG9KkgPMpARYddUB6fLGN99_BKYVR0Wz2wg4eRJvOkCiK61ux8-HSnZ43lvUSYqhNWjv0pnBVZyrCEZJdz4Hm4zT-tFJgCXLDMaQOqeuTWAZP7vI14F4CbqG_x8xOuiA3lRwbfslSFq2NKe-hibi_9q36olikcg0PRZyucmjhKfCbSzcr7tAosV5C7rLNgDjszYBDTF0QhvOPmfU1QSAk2HvNXcdU5x5rlPN2cYLtsXidWy7M"/>
+</div>
+<div>
+<p class="font-body font-bold text-on-surface">Pain Complet</p>
+<p class="text-xs text-outline font-medium">1 tranche (40g) • 110 kcal</p>
+</div>
+</div>
+<button class="w-10 h-10 rounded-full bg-primary/10 text-primary flex items-center justify-center active:scale-90 transition-transform">
+<span class="material-symbols-outlined" data-icon="add">add</span>
+</button>
+</div>
+<div class="bg-surface-container-lowest rounded-2xl p-4 flex items-center justify-between hover:bg-surface-container-low transition-colors duration-200">
+<div class="flex items-center gap-4">
+<div class="w-14 h-14 rounded-2xl overflow-hidden">
+<img class="w-full h-full object-cover" data-alt="half of a ripe avocado showing the pit with vibrant green textures and soft shadows" src="https://lh3.googleusercontent.com/aida-public/AB6AXuBM8u57eDkn0fT-ywPasgMVQ3e-abrH4tHMEe76DR2ZryQGBL_7lXy04JtbU9XwXFqrVzVNTacPC-zBYIcMIKmCV5x6DW_o_c8orr65JYB27kL9UUKtfmeNX75I5rIpwtWvDt4tN1UTw71EGDWCLhfk8dTlmAE6TNoB3AGfPKnVa5rSw9bqM_ClEXlPjmHqiVSg89l8NkC0pf9uBxvZVS_--5_UvUKt32cpIatThT6LNHfAauAMjVnL7E9wG8Nikfe6kEx3kZckLosf"/>
+</div>
+<div>
+<p class="font-body font-bold text-on-surface">Avocat</p>
+<p class="text-xs text-outline font-medium">1/2 fruit (75g) • 120 kcal</p>
+</div>
+</div>
+<button class="w-10 h-10 rounded-full bg-primary/10 text-primary flex items-center justify-center active:scale-90 transition-transform">
+<span class="material-symbols-outlined" data-icon="add">add</span>
+</button>
+</div>
+<div class="bg-surface-container-lowest rounded-2xl p-4 flex items-center justify-between hover:bg-surface-container-low transition-colors duration-200">
+<div class="flex items-center gap-4">
+<div class="w-14 h-14 rounded-2xl overflow-hidden">
+<img class="w-full h-full object-cover" data-alt="scrambled eggs in a white ceramic dish garnished with fresh chives" src="https://lh3.googleusercontent.com/aida-public/AB6AXuBUhiK2RLoFRb7YIBcfPGhzgRXWokeisLtLf-RGD3GC1I3EeXQnw96tUQjRJTCTF64p89pRBwH6Ti1mraYzSI7myFnqJMrJRZ20xJgB1WSrG0khPzz9gqDxwU1yoy4kKA8R7qu3_jZJoOdfT2EjEJgBsaU1KKkXPHxovRvlcIffqkikwIoYVGn4Rax0ue_3AS0VvhxlEgDrdEyzSFA-fBTEgW2EN2ypiEn5FoWXZWQgXZqTpQ1SSi-0OJCdCxYXznBhRIq_XAS5S88J"/>
+</div>
+<div>
+<p class="font-body font-bold text-on-surface">Oeufs Brouillés</p>
+<p class="text-xs text-outline font-medium">2 oeufs • 140 kcal</p>
+</div>
+</div>
+<button class="w-10 h-10 rounded-full bg-primary/10 text-primary flex items-center justify-center active:scale-90 transition-transform">
+<span class="material-symbols-outlined" data-icon="add">add</span>
+</button>
+</div>
+</div>
+</section>
+</main>
+<nav class="fixed bottom-0 left-0 w-full flex justify-around items-center px-4 pb-6 pt-3 bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl border-t border-slate-100 dark:border-slate-800 shadow-[0_-4px_24px_rgba(0,0,0,0.04)] rounded-t-[1.5rem] z-50">
+<a class="flex flex-col items-center justify-center bg-[#006857]/10 dark:bg-teal-900/30 text-[#006857] dark:text-teal-300 rounded-2xl px-5 py-2 scale-110 duration-300 ease-out" href="#">
+<span class="material-symbols-outlined" data-icon="menu_book" style="font-variation-settings: 'FILL' 1;">menu_book</span>
+<span class="font-['Manrope'] font-semibold text-[11px]">Journal</span>
+</a>
+<a class="flex flex-col items-center justify-center text-slate-400 dark:text-slate-500 px-5 py-2 hover:text-[#006857] dark:hover:text-teal-400" href="#">
+<span class="material-symbols-outlined" data-icon="restaurant_menu">restaurant_menu</span>
+<span class="font-['Manrope'] font-semibold text-[11px]">Recettes</span>
+</a>
+<a class="flex flex-col items-center justify-center text-slate-400 dark:text-slate-500 px-5 py-2 hover:text-[#006857] dark:hover:text-teal-400" href="#">
+<span class="material-symbols-outlined" data-icon="monitor_weight">monitor_weight</span>
+<span class="font-['Manrope'] font-semibold text-[11px]">Poids</span>
+</a>
+<a class="flex flex-col items-center justify-center text-slate-400 dark:text-slate-500 px-5 py-2 hover:text-[#006857] dark:hover:text-teal-400" href="#">
+<span class="material-symbols-outlined" data-icon="person">person</span>
+<span class="font-['Manrope'] font-semibold text-[11px]">Profil</span>
+</a>
+</nav>
+</body></html>
