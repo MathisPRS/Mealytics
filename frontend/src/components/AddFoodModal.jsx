@@ -182,8 +182,8 @@ export default function AddFoodModal({ mealId, date, onClose }) {
       unit: food.defaultUnit,
       ...nutrition,
     })
+    // Stay on the modal so the user can add more foods
     setSelectedFood(null)
-    onClose()
   }
 
   // Add recipe as food

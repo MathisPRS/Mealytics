@@ -176,22 +176,71 @@ export function calcDailyCalories(gender, weight, height, age, activityId, goalI
 }
 
 // ── Macros ───────────────────────────────────────────────
-export function calcMacros(dailyCalories, goalId) {
-  let proteinPct, fatPct, carbPct;
+/**
+ * Calcul des macros différencié homme/femme, ancré sur le poids corporel.
+ *
+ * Références scientifiques :
+ *   - ANSES 2016 : 0.83 g/kg/j minimum population générale
+ *   - ISSN Position Stand 2017 (PMID 28642676) :
+ *       maintien/sport modéré → 1.4–1.6 g/kg
+ *       prise de muscle       → 1.6–2.0 g/kg
+ *       perte de poids        → 1.2–1.6 g/kg (préserve la masse maigre)
+ *   - Morton et al. 2018 (PMID 28698222, meta-analyse 49 études) :
+ *       prise de muscle femme → plateau à ~1.6 g/kg (vs 1.8 g/kg homme)
+ *   - Volek et al. 2002 (PMID 11834107) :
+ *       femmes en déficit catabolisent davantage la masse maigre
+ *       → protéines maintien femme légèrement plus hautes : 1.5 g/kg
+ *   - EFSA 2017 : lipides 20–35% des calories totales
+ *   - Différence lipides homme/femme : les femmes nécessitent ~2% supplémentaires
+ *     pour les acides gras essentiels (hormones, santé reproductive) — pratique clinique ANSES
+ *
+ * Stratégie :
+ *   1. Protéines = proteinPerKg × poids  (g/kg ancré selon genre + objectif)
+ *   2. Lipides   = fatPct × dailyCalories (28% homme, 30% femme)
+ *   3. Glucides  = calories restantes après protéines + lipides
+ */
+export function calcMacros(dailyCalories, goalId, weight = 70, gender = 'homme') {
+  const isFemme = gender === 'femme';
+
+  // 1. Protéines selon objectif ET genre (g/kg de poids corporel)
+  let proteinPerKg;
   switch (goalId) {
     case 'prise_muscle':
-      proteinPct = 0.30; fatPct = 0.25; carbPct = 0.45; break;
+      // Homme : ISSN 1.6–2.0 → 1.8 g/kg
+      // Femme  : Morton 2018 — plateau à ~1.6 g/kg (synthèse protéique plus faible)
+      proteinPerKg = isFemme ? 1.6 : 1.8;
+      break;
     case 'perte_poids':
+      // Identique homme/femme : haut de fourchette ISSN pour préserver la masse maigre
+      proteinPerKg = 1.6;
+      break;
     case 'perte_poids_douce':
-      proteinPct = 0.35; fatPct = 0.30; carbPct = 0.35; break;
-    default:
-      proteinPct = 0.25; fatPct = 0.30; carbPct = 0.45;
+      // Femme légèrement plus haute (Volek 2002 : catabolisme musculaire accru en déficit)
+      proteinPerKg = isFemme ? 1.5 : 1.4;
+      break;
+    case 'prise_poids':
+      // Soutien musculaire — femme légèrement moins (même logique Morton)
+      proteinPerKg = isFemme ? 1.4 : 1.6;
+      break;
+    default: // maintien
+      // Femme : 1.5 g/kg (Volek 2002 + pratique clinique ANSES)
+      // Homme : 1.4 g/kg (ISSN maintien)
+      proteinPerKg = isFemme ? 1.5 : 1.4;
   }
-  return {
-    protein: Math.round((dailyCalories * proteinPct) / 4),
-    fat:     Math.round((dailyCalories * fatPct)     / 9),
-    carbs:   Math.round((dailyCalories * carbPct)    / 4),
-  };
+
+  const protein = Math.round(proteinPerKg * weight);
+  const proteinKcal = protein * 4;
+
+  // 2. Lipides : femme 30%, homme 28% (EFSA + acides gras essentiels)
+  const fatPct = isFemme ? 0.30 : 0.28;
+  const fatKcal = Math.round(dailyCalories * fatPct);
+  const fat = Math.round(fatKcal / 9);
+
+  // 3. Glucides = calories restantes
+  const carbKcal = Math.max(dailyCalories - proteinKcal - fatKcal, 0);
+  const carbs = Math.round(carbKcal / 4);
+
+  return { protein, fat, carbs };
 }
 
 // ── calcUserNeeds — point d'entrée principal ─────────────
@@ -221,6 +270,6 @@ export function calcUserNeeds(profile) {
   const rawCalories = Math.round(tdee + goalObj.calAdjust);
   const dailyCalories = customCalories ? parseInt(customCalories, 10) : rawCalories;
 
-  const macros = calcMacros(dailyCalories, goal);
+  const macros = calcMacros(dailyCalories, goal, weight, gender);
   return { dailyCalories, ...macros };
 }

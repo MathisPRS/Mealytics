@@ -114,8 +114,9 @@ router.put('/profile', async (req, res) => {
   try {
     const result = await pool.query(
       `UPDATE users SET ${fields} WHERE id = $1
-       RETURNING id, email, name, gender, weight, height, age, activity_level, goal,
-                 target_weight, custom_calories, notifications, member_since, onboarded`,
+       RETURNING id, email, name, gender, weight, height, age, activity_level,
+                 job_activity, sport_activity, metabolism,
+                 goal, target_weight, custom_calories, notifications, member_since, onboarded`,
       values
     );
     return res.json({ user: result.rows[0] });
