@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { Html5Qrcode } from 'html5-qrcode'
+import { Html5Qrcode, Html5QrcodeSupportedFormats } from 'html5-qrcode'
 
 // ── Fetch product from Open Food Facts ─────────────────────────────
 async function fetchProductByBarcode(barcode) {
@@ -7,7 +7,7 @@ async function fetchProductByBarcode(barcode) {
     `https://world.openfoodfacts.org/api/v0/product/${barcode}.json`,
     { signal: AbortSignal.timeout(10000) }
   )
-  if (!res.ok) throw new Error('Erreur réseau')
+  if (!res.ok) throw new Error(`HTTP ${res.status}`)
   const data = await res.json()
   if (data.status !== 1) return null
 
@@ -82,7 +82,6 @@ function ManualEntryForm({ barcode, prefillName, onConfirm, onCancel }) {
           Renseigne les informations nutritionnelles <span className="font-semibold text-on-surface">pour 100g</span>.
         </p>
 
-        {/* Nom */}
         <div className="space-y-1.5">
           <label className="text-xs font-bold text-outline uppercase tracking-wider">Nom du produit *</label>
           <input
@@ -94,7 +93,6 @@ function ManualEntryForm({ barcode, prefillName, onConfirm, onCancel }) {
           />
         </div>
 
-        {/* Grid macros */}
         <div className="grid grid-cols-2 gap-3">
           {[
             { label: 'Calories (kcal)', key: 'calories', val: calories, set: setCalories, color: 'text-primary', required: true },
@@ -143,81 +141,110 @@ export default function BarcodeScannerModal({ onProductFound, onClose }) {
   const [product,  setProduct]  = useState(null)
   const [barcode,  setBarcode]  = useState(null)
   const [prefill,  setPrefill]  = useState('')
+  const [debugLog, setDebugLog] = useState(['Initialisation...'])
 
   const scannerRef = useRef(null)
   const stoppedRef = useRef(false)
 
+  const addLog = (msg) => {
+    console.log('[Scanner]', msg)
+    setDebugLog(prev => [...prev.slice(-6), msg])
+  }
+
   useEffect(() => {
     if (phase !== 'scanning') return
 
-    const scanner = new Html5Qrcode(SCANNER_ID)
+    stoppedRef.current = false
+    addLog('Création du scanner html5-qrcode...')
+
+    const scanner = new Html5Qrcode(SCANNER_ID, { verbose: false })
     scannerRef.current = scanner
+
+    const config = {
+      fps: 10,
+      qrbox: { width: 250, height: 150 },
+      formatsToSupport: [
+        Html5QrcodeSupportedFormats.EAN_13,
+        Html5QrcodeSupportedFormats.EAN_8,
+        Html5QrcodeSupportedFormats.UPC_A,
+        Html5QrcodeSupportedFormats.UPC_E,
+        Html5QrcodeSupportedFormats.CODE_128,
+      ],
+      rememberLastUsedCamera: false,
+      showTorchButtonIfSupported: false,
+    }
+
+    addLog('Demande accès caméra (facingMode: environment)...')
 
     scanner.start(
       { facingMode: 'environment' },
-      {
-        fps: 15,
-        qrbox: { width: 280, height: 160 },
-        // Support EAN-8, EAN-13, UPC-A, UPC-E et code-barres 1D
-        formatsToSupport: [
-          window.Html5QrcodeSupportedFormats?.EAN_13,
-          window.Html5QrcodeSupportedFormats?.EAN_8,
-          window.Html5QrcodeSupportedFormats?.UPC_A,
-          window.Html5QrcodeSupportedFormats?.UPC_E,
-          window.Html5QrcodeSupportedFormats?.CODE_128,
-          window.Html5QrcodeSupportedFormats?.CODE_39,
-        ].filter(Boolean),
-        aspectRatio: 1.5,
-        disableFlip: false,
-      },
+      config,
       async (decodedText) => {
         if (stoppedRef.current) return
         stoppedRef.current = true
 
-        try { await scanner.stop() } catch {}
+        addLog(`Code détecté : ${decodedText}`)
+
+        try { await scanner.stop() } catch (e) { addLog(`stop() err: ${e.message}`) }
 
         setBarcode(decodedText)
         setPhase('loading')
 
+        addLog('Recherche sur Open Food Facts...')
         try {
           const prod = await fetchProductByBarcode(decodedText)
           if (!prod) {
+            addLog('Produit non trouvé dans OFF')
             setPhase('not_found')
           } else if (prod.incomplete) {
+            addLog(`Produit trouvé (incomplet) : ${prod.name}`)
             setPrefill(prod.name)
             setPhase('incomplete')
           } else {
+            addLog(`Produit trouvé : ${prod.name}`)
             setProduct(prod)
             setPhase('found')
           }
-        } catch {
-          setMessage('Impossible de contacter Open Food Facts. Vérifie ta connexion.')
+        } catch (e) {
+          addLog(`Erreur OFF : ${e.message}`)
+          setMessage(`Impossible de contacter Open Food Facts : ${e.message}`)
           setPhase('error')
         }
       },
-      // Erreurs de scan ignorées (pas de code dans le cadre)
-      () => {}
-    ).catch(err => {
-      const msg = err?.message || ''
-      setMessage(
-        msg.includes('NotAllowedError') || msg.includes('Permission')
-          ? 'Accès à la caméra refusé. Autorise la caméra dans les réglages du navigateur.'
-          : 'Caméra non disponible sur cet appareil.'
-      )
+      (err) => {
+        // Erreurs de scan frame par frame — on ignore "No MultiFormat Readers"
+        if (!err?.includes('No MultiFormat')) {
+          addLog(`Frame err: ${err}`)
+        }
+      }
+    )
+    .then(() => {
+      addLog('Caméra démarrée avec succès')
+    })
+    .catch(err => {
+      const msg = err?.message || String(err)
+      addLog(`ERREUR démarrage: ${msg}`)
+      let userMsg = `Erreur caméra : ${msg}`
+      if (msg.includes('NotAllowedError') || msg.includes('Permission')) {
+        userMsg = 'Accès à la caméra refusé. Autorise la caméra dans les réglages du navigateur.'
+      } else if (msg.includes('NotFoundError') || msg.includes('not found')) {
+        userMsg = 'Aucune caméra détectée. Essaie de changer la caméra ou utilise la saisie manuelle.'
+      }
+      setMessage(userMsg)
       setPhase('error')
     })
 
     return () => {
       stoppedRef.current = true
-      try {
-        scanner.stop().catch(() => {})
-      } catch {}
+      if (scannerRef.current) {
+        scannerRef.current.stop().catch(() => {})
+      }
     }
-  }, [phase === 'scanning']) // eslint-disable-line react-hooks/exhaustive-deps
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   // ── Phases UI ──────────────────────────────────────────────────
 
-  // Manual form (not_found / incomplete / explicit manual)
   if (phase === 'manual' || phase === 'not_found' || phase === 'incomplete') {
     return (
       <div className="fixed inset-0 z-[70] flex flex-col bg-surface">
@@ -231,7 +258,6 @@ export default function BarcodeScannerModal({ onProductFound, onClose }) {
     )
   }
 
-  // Found
   if (phase === 'found' && product) {
     return (
       <div className="fixed inset-0 z-[70] flex flex-col bg-surface">
@@ -243,7 +269,6 @@ export default function BarcodeScannerModal({ onProductFound, onClose }) {
         </div>
 
         <div className="flex-1 px-5 py-6 space-y-5 overflow-y-auto">
-          {/* Product card */}
           <div className="bg-surface-container-low rounded-2xl p-5 flex items-center gap-4">
             <div className="w-14 h-14 rounded-2xl bg-surface-container flex items-center justify-center text-3xl flex-shrink-0">
               🛒
@@ -254,13 +279,12 @@ export default function BarcodeScannerModal({ onProductFound, onClose }) {
             </div>
           </div>
 
-          {/* Nutrition grid */}
           <div className="grid grid-cols-4 gap-2">
             {[
-              { label: 'Kcal',  value: product.calories,        color: 'text-primary'   },
-              { label: 'Prot.', value: `${product.protein}g`,   color: 'text-secondary' },
-              { label: 'Gluc.', value: `${product.carbs}g`,     color: 'text-primary'   },
-              { label: 'Lip.',  value: `${product.fat}g`,       color: 'text-tertiary'  },
+              { label: 'Kcal',  value: product.calories,      color: 'text-primary'   },
+              { label: 'Prot.', value: `${product.protein}g`, color: 'text-secondary' },
+              { label: 'Gluc.', value: `${product.carbs}g`,   color: 'text-primary'   },
+              { label: 'Lip.',  value: `${product.fat}g`,     color: 'text-tertiary'  },
             ].map(n => (
               <div key={n.label} className="bg-surface-container-low rounded-xl p-3 text-center">
                 <p className={`font-headline font-bold text-sm ${n.color}`}>{n.value}</p>
@@ -292,30 +316,53 @@ export default function BarcodeScannerModal({ onProductFound, onClose }) {
     )
   }
 
-  // Scanning / loading / error — camera view
+  // ── Vue caméra (scanning / loading / error) ────────────────────
   return (
-    <div className="fixed inset-0 z-[70] bg-black flex flex-col">
+    <div className="fixed inset-0 z-[70] bg-black flex flex-col overflow-hidden">
 
-      {/* Conteneur caméra html5-qrcode */}
+      {/*
+        html5-qrcode injecte une <video> et un <canvas> directement dans ce div.
+        On le laisse remplir tout l'écran sans Tailwind qui interfère.
+        Le style inline évite les conflits avec les classes utilitaires.
+      */}
       <div
         id={SCANNER_ID}
-        className="absolute inset-0 w-full h-full overflow-hidden [&>video]:w-full [&>video]:h-full [&>video]:object-cover [&>img]:hidden"
-        style={{ '--html5-qrcode-border-color': 'transparent' }}
+        style={{
+          position: 'absolute',
+          inset: 0,
+          width: '100%',
+          height: '100%',
+          overflow: 'hidden',
+        }}
       />
 
-      {/* Overlay sombre + cadre de scan */}
+      {/* Supprimer le style injecté par html5-qrcode (bordures, boutons) via CSS global */}
+      <style>{`
+        #${SCANNER_ID} > * { box-sizing: border-box; }
+        #${SCANNER_ID} video {
+          position: absolute !important;
+          inset: 0 !important;
+          width: 100% !important;
+          height: 100% !important;
+          object-fit: cover !important;
+        }
+        #${SCANNER_ID} canvas { display: none !important; }
+        #${SCANNER_ID} img { display: none !important; }
+        #${SCANNER_ID} #qr-shaded-region { display: none !important; }
+        #${SCANNER_ID} button { display: none !important; }
+        #${SCANNER_ID} select { display: none !important; }
+        #${SCANNER_ID} span { display: none !important; }
+      `}</style>
+
+      {/* Overlay sombre + cadre visuel */}
       <div className="absolute inset-0 pointer-events-none flex flex-col items-center justify-center">
-        {/* zones sombres autour du cadre */}
         <div className="absolute top-0 left-0 right-0 h-[28%] bg-black/60" />
         <div className="absolute bottom-0 left-0 right-0 h-[38%] bg-black/60" />
         <div className="absolute left-0 top-[28%] bottom-[38%] w-[8%] bg-black/60" />
         <div className="absolute right-0 top-[28%] bottom-[38%] w-[8%] bg-black/60" />
 
-        {/* Cadre de scan */}
         <div className="relative w-[84%] aspect-[3/2]">
-          {/* Coins */}
-          {[
-            'top-0 left-0 border-t-4 border-l-4 rounded-tl-lg',
+          {['top-0 left-0 border-t-4 border-l-4 rounded-tl-lg',
             'top-0 right-0 border-t-4 border-r-4 rounded-tr-lg',
             'bottom-0 left-0 border-b-4 border-l-4 rounded-bl-lg',
             'bottom-0 right-0 border-b-4 border-r-4 rounded-br-lg',
@@ -323,7 +370,6 @@ export default function BarcodeScannerModal({ onProductFound, onClose }) {
             <div key={i} className={`absolute w-8 h-8 border-white ${cls}`} />
           ))}
 
-          {/* Ligne de scan animée */}
           {phase === 'scanning' && (
             <div
               className="absolute left-2 right-2 top-0 h-0.5 bg-primary/80"
@@ -346,7 +392,7 @@ export default function BarcodeScannerModal({ onProductFound, onClose }) {
       </div>
 
       {/* Bottom panel */}
-      <div className="relative z-10 mt-auto px-5 pb-10 flex flex-col items-center gap-4">
+      <div className="relative z-10 mt-auto px-5 pb-6 flex flex-col items-center gap-3">
         {phase === 'scanning' && (
           <>
             <p className="text-white/80 text-sm text-center font-medium">
@@ -369,8 +415,8 @@ export default function BarcodeScannerModal({ onProductFound, onClose }) {
         )}
 
         {phase === 'error' && (
-          <div className="bg-black/60 rounded-2xl px-5 py-4 space-y-3 w-full">
-            <p className="text-white text-sm text-center">{message}</p>
+          <div className="bg-black/80 rounded-2xl px-5 py-4 space-y-3 w-full">
+            <p className="text-red-400 text-sm text-center font-medium">{message}</p>
             <button
               onClick={() => { setPhase('manual'); setBarcode(null) }}
               className="w-full bg-primary text-on-primary font-semibold text-sm py-3 rounded-full active:scale-95 transition-transform"
@@ -379,6 +425,13 @@ export default function BarcodeScannerModal({ onProductFound, onClose }) {
             </button>
           </div>
         )}
+
+        {/* Debug log — visible à l'écran pour faciliter les tests */}
+        <div className="w-full bg-black/70 rounded-xl px-4 py-3 font-mono text-[10px] text-green-400 space-y-0.5">
+          {debugLog.map((line, i) => (
+            <div key={i}>{line}</div>
+          ))}
+        </div>
       </div>
     </div>
   )
