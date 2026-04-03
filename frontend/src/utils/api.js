@@ -83,4 +83,24 @@ export const api = {
     get: (date) => request(`/api/water?date=${date}`),
     update: (date, delta) => request('/api/water', { method: 'POST', body: { date, delta } }),
   },
+
+  // ── Scanned foods ─────────────────────────────────────────
+  scannedFoods: {
+    getAll: () => request('/api/scanned-foods'),
+    save: (food) => request('/api/scanned-foods', {
+      method: 'POST',
+      body: {
+        barcode:     food.barcode,
+        foodId:      food.id,
+        name:        food.name,
+        calories:    food.calories,
+        protein:     food.protein,
+        carbs:       food.carbs,
+        fat:         food.fat,
+        defaultQty:  food.defaultQty,
+        defaultUnit: food.defaultUnit,
+      },
+    }),
+    remove: (id) => request(`/api/scanned-foods/${id}`, { method: 'DELETE' }),
+  },
 };

@@ -85,6 +85,23 @@ const SCHEMA = `
     amount_ml  INTEGER NOT NULL DEFAULT 0,
     UNIQUE(user_id, log_date)
   );
+
+  -- Produits scannés sauvegardés définitivement par l'utilisateur
+  CREATE TABLE IF NOT EXISTS scanned_foods (
+    id           SERIAL PRIMARY KEY,
+    user_id      INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    barcode      TEXT NOT NULL,
+    food_id      TEXT NOT NULL,
+    name         TEXT NOT NULL,
+    calories     NUMERIC(8,2) NOT NULL DEFAULT 0,
+    protein      NUMERIC(8,2) NOT NULL DEFAULT 0,
+    carbs        NUMERIC(8,2) NOT NULL DEFAULT 0,
+    fat          NUMERIC(8,2) NOT NULL DEFAULT 0,
+    default_qty  NUMERIC(8,2) NOT NULL DEFAULT 100,
+    default_unit TEXT NOT NULL DEFAULT 'g',
+    created_at   TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE(user_id, barcode)
+  );
 `;
 
 async function migrate() {

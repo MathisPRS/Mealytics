@@ -25,7 +25,7 @@ app.use(helmet({
       styleSrc:       ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
       imgSrc:         ["'self'", 'data:'],
       fontSrc:        ["'self'", 'https://fonts.gstatic.com'],
-      connectSrc:     ["'self'"],
+      connectSrc:     ["'self'", 'https://world.openfoodfacts.org'],
       frameSrc:       ["'none'"],
       objectSrc:      ["'none'"],
       upgradeInsecureRequests: [],
@@ -78,10 +78,11 @@ app.get('/health', (_req, res) => res.json({ status: 'ok' }));
 
 // ── API Routes ────────────────────────────────────────────
 app.use('/auth',        require('./routes/auth'));
-app.use('/api/journal', require('./routes/journal'));
-app.use('/api/weight',  require('./routes/weight'));
-app.use('/api/recipes', require('./routes/recipes'));
-app.use('/api',         require('./routes/user')); // profile, favorites, recents, water
+app.use('/api/journal',       require('./routes/journal'));
+app.use('/api/weight',        require('./routes/weight'));
+app.use('/api/recipes',       require('./routes/recipes'));
+app.use('/api/scanned-foods', require('./routes/scannedFoods'));
+app.use('/api',               require('./routes/user')); // profile, favorites, recents, water
 
 // ── Serve frontend static files (production) ──────────────
 const publicDir = path.join(__dirname, '..', 'public');

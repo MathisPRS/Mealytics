@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { useApp } from '../contexts/AppContext'
 import foods, { getFoodById, searchFoods, calcNutritionFull } from '../data/foods'
 import BarcodeScannerModal from './BarcodeScannerModal'
+import { api } from '../utils/api'
 
 // Tab indices
 const TAB_RECENTS   = 0
@@ -15,9 +16,6 @@ const TABS = [
   { id: TAB_RECETTES, label: 'Mes Recettes' },
   { id: TAB_SCANNES,  label: 'Scannés'      },
 ]
-
-// ── Scanned products local store (session) ─────────────────────────
-let _scannedProducts = []
 
 // ── Helpers ────────────────────────────────────────────────────────
 function calcKcal(food) {
@@ -152,8 +150,33 @@ export default function AddFoodModal({ mealId, date, onClose }) {
   const [query, setQuery]           = useState('')
   const [selectedFood, setSelectedFood] = useState(null)
   const [showScanner, setShowScanner]   = useState(false)
-  const [scanned, setScanned]           = useState(_scannedProducts)
+  const [scanned, setScanned]           = useState([])
+  const [scannedLoading, setScannedLoading] = useState(false)
   const inputRef = useRef(null)
+
+  // Charger les aliments scannés depuis le backend au montage
+  useEffect(() => {
+    setScannedLoading(true)
+    api.scannedFoods.getAll()
+      .then(rows => {
+        setScanned(rows.map(row => ({
+          id:          row.food_id,
+          dbId:        row.id,
+          name:        row.name,
+          emoji:       '🛒',
+          defaultQty:  parseFloat(row.default_qty),
+          defaultUnit: row.default_unit,
+          calories:    parseFloat(row.calories),
+          protein:     parseFloat(row.protein),
+          carbs:       parseFloat(row.carbs),
+          fat:         parseFloat(row.fat),
+          category:    'Scanné',
+          barcode:     row.barcode,
+        })))
+      })
+      .catch(() => {}) // silencieux si non connecté
+      .finally(() => setScannedLoading(false))
+  }, [])
 
   useEffect(() => { inputRef.current?.focus() }, [])
 
@@ -207,15 +230,49 @@ export default function AddFoodModal({ mealId, date, onClose }) {
     })
   }
 
-  const handleProductFound = (product) => {
-    const already = _scannedProducts.find(p => p.id === product.id)
-    if (!already) {
-      _scannedProducts = [product, ..._scannedProducts]
-      setScanned([..._scannedProducts])
-    }
+  const handleProductFound = async (product) => {
     setShowScanner(false)
     setTab(TAB_SCANNES)
-    setSelectedFood(product)
+
+    // Sauvegarde en base de données
+    try {
+      const saved = await api.scannedFoods.save(product)
+      const normalized = {
+        id:          saved.food_id,
+        dbId:        saved.id,
+        name:        saved.name,
+        emoji:       '🛒',
+        defaultQty:  parseFloat(saved.default_qty),
+        defaultUnit: saved.default_unit,
+        calories:    parseFloat(saved.calories),
+        protein:     parseFloat(saved.protein),
+        carbs:       parseFloat(saved.carbs),
+        fat:         parseFloat(saved.fat),
+        category:    'Scanné',
+        barcode:     saved.barcode,
+      }
+      // Mettre à jour la liste locale (déduplique par id)
+      setScanned(prev => {
+        const filtered = prev.filter(p => p.id !== normalized.id)
+        return [normalized, ...filtered]
+      })
+      setSelectedFood(normalized)
+    } catch {
+      // En cas d'erreur réseau, ajouter quand même localement
+      const local = { ...product, dbId: null }
+      setScanned(prev => {
+        const filtered = prev.filter(p => p.id !== product.id)
+        return [local, ...filtered]
+      })
+      setSelectedFood(local)
+    }
+  }
+
+  const handleDeleteScanned = async (food) => {
+    if (food.dbId) {
+      try { await api.scannedFoods.remove(food.dbId) } catch {}
+    }
+    setScanned(prev => prev.filter(p => p.id !== food.id))
   }
 
   // Section title when not searching
@@ -402,7 +459,7 @@ export default function AddFoodModal({ mealId, date, onClose }) {
                 )}
 
                 {/* Scannés — empty state */}
-                {tab === TAB_SCANNES && !query.trim() && scanned.length === 0 && (
+                {tab === TAB_SCANNES && !query.trim() && !scannedLoading && scanned.length === 0 && (
                   <div className="flex flex-col items-center py-12 gap-4 text-center">
                     <div className="w-16 h-16 rounded-full bg-surface-container flex items-center justify-center">
                       <span className="material-symbols-outlined text-outline text-3xl">barcode_scanner</span>
@@ -422,9 +479,16 @@ export default function AddFoodModal({ mealId, date, onClose }) {
                   </div>
                 )}
 
+                {/* Scannés — loading */}
+                {tab === TAB_SCANNES && !query.trim() && scannedLoading && (
+                  <div className="flex justify-center py-12">
+                    <div className="w-6 h-6 border-2 border-primary/30 border-t-primary rounded-full animate-spin" />
+                  </div>
+                )}
+
                 {/* Regular food items */}
                 {(tab !== TAB_RECETTES || query.trim()) &&
-                  !(tab === TAB_SCANNES && !query.trim() && scanned.length === 0) && (
+                  !(tab === TAB_SCANNES && !query.trim() && (scanned.length === 0 || scannedLoading)) && (
                     displayFoods.length === 0
                       ? (
                         <p className="text-center text-outline py-8">
@@ -432,13 +496,24 @@ export default function AddFoodModal({ mealId, date, onClose }) {
                         </p>
                       )
                       : displayFoods.map(food => (
-                          <FoodItem
-                            key={food.id}
-                            food={food}
-                            onSelect={setSelectedFood}
-                            isFavorite={isFavorite(food.id)}
-                            onToggleFav={food.id.startsWith('barcode_') ? null : toggleFavorite}
-                          />
+                          <div key={food.id} className="relative group">
+                            <FoodItem
+                              food={food}
+                              onSelect={setSelectedFood}
+                              isFavorite={isFavorite(food.id)}
+                              onToggleFav={food.id.startsWith('barcode_') ? null : toggleFavorite}
+                            />
+                            {/* Bouton supprimer pour les produits scannés */}
+                            {tab === TAB_SCANNES && !query.trim() && (
+                              <button
+                                onClick={() => handleDeleteScanned(food)}
+                                className="absolute top-2 right-14 p-1.5 rounded-full bg-surface-container text-outline hover:text-error hover:bg-error/10 transition-colors opacity-0 group-hover:opacity-100"
+                                title="Supprimer"
+                              >
+                                <span className="material-symbols-outlined text-base">delete</span>
+                              </button>
+                            )}
+                          </div>
                         ))
                   )}
               </div>
