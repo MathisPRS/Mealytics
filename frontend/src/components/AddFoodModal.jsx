@@ -4,6 +4,42 @@ import foods, { getFoodById, searchFoods, calcNutritionFull } from '../data/food
 import BarcodeScannerModal from './BarcodeScannerModal'
 import { api } from '../utils/api'
 
+// ── Fetch product from Open Food Facts ────────────────────────────
+async function fetchProductByBarcode(barcode) {
+  const res = await fetch(
+    `https://world.openfoodfacts.org/api/v0/product/${barcode}.json`,
+    { signal: AbortSignal.timeout(10000) }
+  )
+  if (!res.ok) throw new Error(`HTTP ${res.status}`)
+  const data = await res.json()
+  if (data.status !== 1) return null
+
+  const p = data.product
+  const n = p.nutriments || {}
+  const name = p.product_name_fr || p.product_name || p.abbreviated_product_name || ''
+  if (!name) return null
+
+  const calories = parseFloat(n['energy-kcal_100g'] ?? n['energy-kcal'] ?? 0)
+  const protein  = parseFloat(n['proteins_100g']    ?? n['proteins']    ?? 0)
+  const carbs    = parseFloat(n['carbohydrates_100g']?? n['carbohydrates']?? 0)
+  const fat      = parseFloat(n['fat_100g']          ?? n['fat']          ?? 0)
+
+  return {
+    id:          `barcode_${barcode}`,
+    name,
+    emoji:       '🛒',
+    defaultQty:  100,
+    defaultUnit: 'g',
+    calories:    Math.round(calories * 10) / 10,
+    protein:     Math.round(protein  * 10) / 10,
+    carbs:       Math.round(carbs    * 10) / 10,
+    fat:         Math.round(fat      * 10) / 10,
+    category:    'Scanné',
+    barcode,
+    incomplete:  calories === 0 && protein === 0 && carbs === 0 && fat === 0,
+  }
+}
+
 // Tab indices
 const TAB_RECENTS   = 0
 const TAB_FAVORIS   = 1
@@ -26,12 +62,11 @@ function calcKcal(food) {
   )
 }
 
-// ── FoodItem — nouvelle carte style design ─────────────────────────
+// ── FoodItem ───────────────────────────────────────────────────────
 function FoodItem({ food, onSelect, isFavorite, onToggleFav }) {
   return (
     <div className="bg-surface-container-lowest rounded-2xl p-4 flex items-center justify-between hover:bg-surface-container-low transition-colors duration-200">
       <div className="flex items-center gap-4 min-w-0">
-        {/* Thumbnail : emoji centré dans un carré arrondi */}
         <div className="w-14 h-14 rounded-2xl overflow-hidden bg-surface-container flex items-center justify-center text-3xl flex-shrink-0">
           {food.emoji}
         </div>
@@ -57,7 +92,6 @@ function FoodItem({ food, onSelect, isFavorite, onToggleFav }) {
             </span>
           </button>
         )}
-        {/* Bouton + rond vert clair */}
         <button
           onClick={() => onSelect(food)}
           className="w-10 h-10 rounded-full bg-primary/10 text-primary flex items-center justify-center active:scale-90 transition-transform"
@@ -69,7 +103,7 @@ function FoodItem({ food, onSelect, isFavorite, onToggleFav }) {
   )
 }
 
-// ── QuantityModal — bottom sheet inchangé ─────────────────────────
+// ── QuantityModal ──────────────────────────────────────────────────
 function QuantityModal({ food, onConfirm, onCancel }) {
   const [qty, setQty] = useState(food.defaultQty)
   const nutrition = calcNutritionFull(food, qty, food.defaultUnit)
@@ -149,12 +183,18 @@ export default function AddFoodModal({ mealId, date, onClose }) {
   const [tab, setTab]               = useState(TAB_RECENTS)
   const [query, setQuery]           = useState('')
   const [selectedFood, setSelectedFood] = useState(null)
-  const [showScanner, setShowScanner]   = useState(false)
   const [scanned, setScanned]           = useState([])
   const [scannedLoading, setScannedLoading] = useState(false)
-  const inputRef = useRef(null)
 
-  // Charger les aliments scannés depuis le backend au montage
+  // ── Scanner state ──────────────────────────────────────────────
+  // null = closed ; object { phase, product, barcode, errorMessage, prefillName } = open
+  const [scannerResult, setScannerResult] = useState(null)
+  const [scanLoading,   setScanLoading]   = useState(false)
+
+  const fileInputRef = useRef(null)
+  const inputRef     = useRef(null)
+
+  // Load scanned foods from backend on mount
   useEffect(() => {
     setScannedLoading(true)
     api.scannedFoods.getAll()
@@ -174,7 +214,7 @@ export default function AddFoodModal({ mealId, date, onClose }) {
           barcode:     row.barcode,
         })))
       })
-      .catch(() => {}) // silencieux si non connecté
+      .catch(() => {})
       .finally(() => setScannedLoading(false))
   }, [])
 
@@ -191,7 +231,7 @@ export default function AddFoodModal({ mealId, date, onClose }) {
   const currentEntries  = dayJournal[mealId] || []
   const mealTotal       = currentEntries.reduce((s, e) => s + (parseFloat(e.calories) || 0), 0)
 
-  // ── Foods to display ─────────────────────────────────────────────
+  // ── Foods to display ──────────────────────────────────────────
   const getDisplayFoods = () => {
     if (query.trim()) return searchFoods(query)
     if (tab === TAB_RECENTS) {
@@ -204,7 +244,75 @@ export default function AddFoodModal({ mealId, date, onClose }) {
   }
   const displayFoods = getDisplayFoods()
 
-  // ── Handlers ─────────────────────────────────────────────────────
+  // ── Scanner ───────────────────────────────────────────────────
+  const triggerScanner = () => {
+    fileInputRef.current?.click()
+  }
+
+  const handleFileChange = async (e) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    e.target.value = ''
+    setScanLoading(true)
+    try {
+      const { barcode } = await api.scan.fromImage(file)
+      const prod = await fetchProductByBarcode(barcode)
+      if (!prod) {
+        setScannerResult({ phase: 'not_found', barcode, product: null })
+      } else if (prod.incomplete) {
+        setScannerResult({ phase: 'incomplete', barcode, product: prod, prefillName: prod.name })
+      } else {
+        setScannerResult({ phase: 'found', barcode, product: prod })
+      }
+    } catch (err) {
+      const isNotFound = err.message?.includes('404') || err.message?.includes('Aucun code-barres')
+      if (isNotFound) {
+        setScannerResult({ phase: 'not_found', barcode: null, product: null })
+      } else {
+        setScannerResult({ phase: 'error', barcode: null, product: null, errorMessage: err.message })
+      }
+    } finally {
+      setScanLoading(false)
+    }
+  }
+
+  // Called by BarcodeScannerModal when user confirms a product
+  const handleProductFound = async (product) => {
+    setScannerResult(null)
+    setTab(TAB_SCANNES)
+
+    try {
+      const saved = await api.scannedFoods.save(product)
+      const normalized = {
+        id:          saved.food_id,
+        dbId:        saved.id,
+        name:        saved.name,
+        emoji:       '🛒',
+        defaultQty:  parseFloat(saved.default_qty),
+        defaultUnit: saved.default_unit,
+        calories:    parseFloat(saved.calories),
+        protein:     parseFloat(saved.protein),
+        carbs:       parseFloat(saved.carbs),
+        fat:         parseFloat(saved.fat),
+        category:    'Scanné',
+        barcode:     saved.barcode,
+      }
+      setScanned(prev => {
+        const filtered = prev.filter(p => p.id !== normalized.id)
+        return [normalized, ...filtered]
+      })
+      setSelectedFood(normalized)
+    } catch {
+      const local = { ...product, dbId: null }
+      setScanned(prev => {
+        const filtered = prev.filter(p => p.id !== product.id)
+        return [local, ...filtered]
+      })
+      setSelectedFood(local)
+    }
+  }
+
+  // ── Other handlers ────────────────────────────────────────────
   const handleConfirm = (food, qty) => {
     const nutrition = calcNutritionFull(food, qty, food.defaultUnit)
     addFoodToMeal(date, mealId, {
@@ -230,44 +338,6 @@ export default function AddFoodModal({ mealId, date, onClose }) {
     })
   }
 
-  const handleProductFound = async (product) => {
-    setShowScanner(false)
-    setTab(TAB_SCANNES)
-
-    // Sauvegarde en base de données
-    try {
-      const saved = await api.scannedFoods.save(product)
-      const normalized = {
-        id:          saved.food_id,
-        dbId:        saved.id,
-        name:        saved.name,
-        emoji:       '🛒',
-        defaultQty:  parseFloat(saved.default_qty),
-        defaultUnit: saved.default_unit,
-        calories:    parseFloat(saved.calories),
-        protein:     parseFloat(saved.protein),
-        carbs:       parseFloat(saved.carbs),
-        fat:         parseFloat(saved.fat),
-        category:    'Scanné',
-        barcode:     saved.barcode,
-      }
-      // Mettre à jour la liste locale (déduplique par id)
-      setScanned(prev => {
-        const filtered = prev.filter(p => p.id !== normalized.id)
-        return [normalized, ...filtered]
-      })
-      setSelectedFood(normalized)
-    } catch {
-      // En cas d'erreur réseau, ajouter quand même localement
-      const local = { ...product, dbId: null }
-      setScanned(prev => {
-        const filtered = prev.filter(p => p.id !== product.id)
-        return [local, ...filtered]
-      })
-      setSelectedFood(local)
-    }
-  }
-
   const handleDeleteScanned = async (food) => {
     if (food.dbId) {
       try { await api.scannedFoods.remove(food.dbId) } catch {}
@@ -275,7 +345,6 @@ export default function AddFoodModal({ mealId, date, onClose }) {
     setScanned(prev => prev.filter(p => p.id !== food.id))
   }
 
-  // Section title when not searching
   const sectionTitle = () => {
     if (query.trim()) return 'Résultats'
     if (tab === TAB_RECENTS)  return 'Aliments Récents'
@@ -287,9 +356,19 @@ export default function AddFoodModal({ mealId, date, onClose }) {
 
   return (
     <>
+      {/* Hidden file input — triggers native camera directly */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/*"
+        capture="environment"
+        onChange={handleFileChange}
+        className="hidden"
+      />
+
       <div className="fixed inset-0 z-50 flex flex-col bg-surface">
 
-        {/* ── Header sticky ────────────────────────────────────── */}
+        {/* ── Header ───────────────────────────────────────────── */}
         <header className="w-full sticky top-0 z-10 bg-surface flex items-center justify-between px-6 py-4">
           <div className="flex items-center gap-4">
             <button
@@ -303,7 +382,7 @@ export default function AddFoodModal({ mealId, date, onClose }) {
             </h1>
           </div>
           <button
-            onClick={() => setShowScanner(true)}
+            onClick={triggerScanner}
             className="active:scale-95 duration-200 text-primary p-1"
           >
             <span className="material-symbols-outlined">barcode_scanner</span>
@@ -329,7 +408,7 @@ export default function AddFoodModal({ mealId, date, onClose }) {
                   className="w-full h-14 pl-12 pr-14 bg-surface-container-low border-none rounded-2xl focus:ring-2 focus:ring-primary/20 focus:bg-surface-container-lowest font-body transition-all outline-none placeholder:text-outline"
                 />
                 <button
-                  onClick={() => setShowScanner(true)}
+                  onClick={triggerScanner}
                   className="absolute right-4 text-primary active:scale-90 transition-transform"
                 >
                   <span className="material-symbols-outlined">barcode_scanner</span>
@@ -337,7 +416,7 @@ export default function AddFoodModal({ mealId, date, onClose }) {
               </div>
             </section>
 
-            {/* ── Tabs (underline style) ───────────────────────── */}
+            {/* ── Tabs ─────────────────────────────────────────── */}
             {!query.trim() && (
               <nav className="flex space-x-8 border-none overflow-x-auto no-scrollbar -mb-2">
                 {TABS.map(t => (
@@ -356,7 +435,7 @@ export default function AddFoodModal({ mealId, date, onClose }) {
               </nav>
             )}
 
-            {/* ── Dans ce repas ───────────────────────────────── */}
+            {/* ── Dans ce repas ────────────────────────────────── */}
             {currentEntries.length > 0 && !query.trim() && (
               <section className="space-y-4">
                 <div className="flex items-center justify-between">
@@ -366,37 +445,35 @@ export default function AddFoodModal({ mealId, date, onClose }) {
                   </span>
                 </div>
 
-                {/* Carte blanche avec shadow subtile */}
                 <div className="bg-surface-container-lowest rounded-2xl p-5 shadow-[0_-4px_24px_rgba(0,0,0,0.04)] space-y-4">
                   {currentEntries.map(entry => {
                     const food = getFoodById(entry.foodId || entry.food_id)
                     const emoji = food?.emoji ?? '🍽️'
                     return (
-                    <div key={entry.id} className="flex items-center justify-between">
-                      <div className="flex items-center gap-4 min-w-0">
-                        <div className="w-12 h-12 rounded-xl overflow-hidden bg-surface-container flex items-center justify-center text-2xl flex-shrink-0">
-                          {emoji}
+                      <div key={entry.id} className="flex items-center justify-between">
+                        <div className="flex items-center gap-4 min-w-0">
+                          <div className="w-12 h-12 rounded-xl overflow-hidden bg-surface-container flex items-center justify-center text-2xl flex-shrink-0">
+                            {emoji}
+                          </div>
+                          <div className="min-w-0">
+                            <p className="font-body font-bold text-on-surface truncate">
+                              {entry.food_name || entry.name}
+                            </p>
+                            <p className="text-xs text-outline font-medium">
+                              {entry.quantity}{entry.unit} • {Math.round(entry.calories)} kcal
+                            </p>
+                          </div>
                         </div>
-                        <div className="min-w-0">
-                          <p className="font-body font-bold text-on-surface truncate">
-                            {entry.food_name || entry.name}
-                          </p>
-                          <p className="text-xs text-outline font-medium">
-                            {entry.quantity}{entry.unit} • {Math.round(entry.calories)} kcal
-                          </p>
-                        </div>
+                        <button
+                          onClick={() => removeFoodFromMeal(date, mealId, entry.id)}
+                          className="text-secondary active:scale-95 transition-transform p-2 flex-shrink-0"
+                        >
+                          <span className="material-symbols-outlined">close</span>
+                        </button>
                       </div>
-                      <button
-                        onClick={() => removeFoodFromMeal(date, mealId, entry.id)}
-                        className="text-secondary active:scale-95 transition-transform p-2 flex-shrink-0"
-                      >
-                        <span className="material-symbols-outlined">close</span>
-                      </button>
-                    </div>
                     )
                   })}
 
-                  {/* Total */}
                   <div className="pt-4 mt-2 border-t border-outline-variant/15 flex justify-between items-center">
                     <span className="font-headline font-bold text-on-surface">Total</span>
                     <span className="font-headline font-extrabold text-primary text-xl">
@@ -407,7 +484,7 @@ export default function AddFoodModal({ mealId, date, onClose }) {
               </section>
             )}
 
-            {/* ── Food list ───────────────────────────────────── */}
+            {/* ── Food list ────────────────────────────────────── */}
             <section className="space-y-4">
               {sectionTitle() && (
                 <h2 className="font-headline font-bold text-lg tracking-tight">
@@ -471,7 +548,7 @@ export default function AddFoodModal({ mealId, date, onClose }) {
                       </p>
                     </div>
                     <button
-                      onClick={() => setShowScanner(true)}
+                      onClick={triggerScanner}
                       className="bg-primary text-on-primary font-semibold text-sm px-6 py-3 rounded-full shadow-lg shadow-primary/20 active:scale-95 transition-transform"
                     >
                       Scanner un produit
@@ -503,7 +580,6 @@ export default function AddFoodModal({ mealId, date, onClose }) {
                               isFavorite={isFavorite(food.id)}
                               onToggleFav={food.id.startsWith('barcode_') ? null : toggleFavorite}
                             />
-                            {/* Bouton supprimer pour les produits scannés */}
                             {tab === TAB_SCANNES && !query.trim() && (
                               <button
                                 onClick={() => handleDeleteScanned(food)}
@@ -530,13 +606,27 @@ export default function AddFoodModal({ mealId, date, onClose }) {
             onCancel={() => setSelectedFood(null)}
           />
         )}
+
+        {/* Scanning spinner overlay */}
+        {scanLoading && (
+          <div className="absolute inset-0 z-[60] bg-black/50 flex flex-col items-center justify-center gap-4">
+            <div className="w-12 h-12 rounded-full border-4 border-white/30 border-t-white animate-spin" />
+            <p className="text-white font-medium text-sm">Analyse du code-barres...</p>
+          </div>
+        )}
       </div>
 
-      {/* Barcode scanner */}
-      {showScanner && (
+      {/* Scanner result modal */}
+      {scannerResult && (
         <BarcodeScannerModal
+          phase={scannerResult.phase}
+          product={scannerResult.product}
+          barcode={scannerResult.barcode}
+          errorMessage={scannerResult.errorMessage}
+          prefillName={scannerResult.prefillName}
           onProductFound={handleProductFound}
-          onClose={() => setShowScanner(false)}
+          onRetry={() => { setScannerResult(null); triggerScanner() }}
+          onClose={() => setScannerResult(null)}
         />
       )}
     </>

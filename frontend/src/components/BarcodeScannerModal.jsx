@@ -1,44 +1,6 @@
-import { useState, useRef } from 'react'
-import { api } from '../utils/api'
-
-// ── Fetch product from Open Food Facts ─────────────────────────────
-async function fetchProductByBarcode(barcode) {
-  const res = await fetch(
-    `https://world.openfoodfacts.org/api/v0/product/${barcode}.json`,
-    { signal: AbortSignal.timeout(10000) }
-  )
-  if (!res.ok) throw new Error(`HTTP ${res.status}`)
-  const data = await res.json()
-  if (data.status !== 1) return null
-
-  const p = data.product
-  const n = p.nutriments || {}
-
-  const name = p.product_name_fr || p.product_name || p.abbreviated_product_name || ''
-  if (!name) return null
-
-  const calories = parseFloat(n['energy-kcal_100g'] ?? n['energy-kcal'] ?? 0)
-  const protein  = parseFloat(n['proteins_100g']    ?? n['proteins']    ?? 0)
-  const carbs    = parseFloat(n['carbohydrates_100g']?? n['carbohydrates']?? 0)
-  const fat      = parseFloat(n['fat_100g']          ?? n['fat']          ?? 0)
-
-  return {
-    id:          `barcode_${barcode}`,
-    name,
-    emoji:       '🛒',
-    defaultQty:  100,
-    defaultUnit: 'g',
-    calories:    Math.round(calories * 10) / 10,
-    protein:     Math.round(protein  * 10) / 10,
-    carbs:       Math.round(carbs    * 10) / 10,
-    fat:         Math.round(fat      * 10) / 10,
-    category:    'Scanné',
-    barcode,
-    incomplete:  calories === 0 && protein === 0 && carbs === 0 && fat === 0,
-  }
-}
-
 // ── Manual entry form ──────────────────────────────────────────────
+import { useState } from 'react'
+
 function ManualEntryForm({ barcode, prefillName, onConfirm, onCancel }) {
   const [name,     setName]     = useState(prefillName || '')
   const [calories, setCalories] = useState('')
@@ -131,82 +93,29 @@ function ManualEntryForm({ barcode, prefillName, onConfirm, onCancel }) {
   )
 }
 
-// ── Main scanner modal ──────────────────────────────────────────────
-export default function BarcodeScannerModal({ onProductFound, onClose }) {
-  // idle | loading | found | not_found | error | incomplete | manual
-  const [phase,    setPhase]    = useState('idle')
-  const [message,  setMessage]  = useState('')
-  const [product,  setProduct]  = useState(null)
-  const [barcode,  setBarcode]  = useState(null)
-  const [prefill,  setPrefill]  = useState('')
-  const [photoSrc, setPhotoSrc] = useState(null)   // data-URL of the taken photo
-  const [photoAnim, setPhotoAnim] = useState(false) // trigger expand animation
-
-  const fileInputRef = useRef(null)
-
-  const handleBarcode = async (ean) => {
-    setBarcode(ean)
-    setPhase('loading')
-    try {
-      const prod = await fetchProductByBarcode(ean)
-      if (!prod) {
-        setPhase('not_found')
-      } else if (prod.incomplete) {
-        setPrefill(prod.name)
-        setPhase('incomplete')
-      } else {
-        setProduct(prod)
-        setPhase('found')
-      }
-    } catch (e) {
-      setMessage(`Impossible de contacter Open Food Facts : ${e.message}`)
-      setPhase('error')
-    }
-  }
-
-  const handleFileChange = async (e) => {
-    const file = e.target.files?.[0]
-    if (!file) return
-
-    // Show the photo expanding into place
-    const url = URL.createObjectURL(file)
-    setPhotoSrc(url)
-    setPhotoAnim(false)
-    // Trigger reflow then start animation
-    requestAnimationFrame(() => {
-      requestAnimationFrame(() => setPhotoAnim(true))
-    })
-    setPhase('loading')
-
-    // Reset input so the same photo can be retried if needed
-    e.target.value = ''
-
-    try {
-      const { barcode: ean } = await api.scan.fromImage(file)
-      await handleBarcode(ean)
-    } catch (err) {
-      if (err.message?.includes('404') || err.message?.includes('Aucun code-barres')) {
-        setPhase('not_found')
-      } else {
-        setMessage(`Erreur lors de l'analyse : ${err.message}`)
-        setPhase('error')
-      }
-    }
-  }
-
-  const triggerCapture = () => {
-    fileInputRef.current?.click()
-  }
-
-  const resetToIdle = () => {
-    setPhase('idle')
-    setPhotoSrc(null)
-    setPhotoAnim(false)
-    setProduct(null)
-    setBarcode(null)
-    setPrefill('')
-    setMessage('')
-  }
+// ── Result modal ────────────────────────────────────────────────────
+// Props:
+//   phase          : 'found' | 'not_found' | 'error' | 'incomplete' | 'manual'
+//   product        : object (when phase === 'found')
+//   barcode        : string | null
+//   errorMessage   : string (when phase === 'error')
+//   prefillName    : string (when phase === 'incomplete')
+//   onProductFound : (product) => void
+//   onRetry        : () => void   — re-triggers the camera
+//   onClose        : () => void
+export default function BarcodeScannerModal({
+  phase: initialPhase,
+  product: initialProduct,
+  barcode,
+  errorMessage,
+  prefillName,
+  onProductFound,
+  onRetry,
+  onClose,
+}) {
+  const [phase,   setPhase]   = useState(initialPhase)
+  const [product, setProduct] = useState(initialProduct || null)
+  const [prefill, setPrefill] = useState(prefillName || '')
 
   // ── Manual / not_found / incomplete → form ─────────────────────
   if (phase === 'manual' || phase === 'not_found' || phase === 'incomplete') {
@@ -281,141 +190,44 @@ export default function BarcodeScannerModal({ onProductFound, onClose }) {
     )
   }
 
-  // ── Camera view (idle / loading / error) ───────────────────────
-  return (
-    <div className="fixed inset-0 z-[70] bg-black flex flex-col overflow-hidden">
-
-      {/* Hidden file input — native camera capture */}
-      <input
-        ref={fileInputRef}
-        type="file"
-        accept="image/*"
-        capture="environment"
-        onChange={handleFileChange}
-        className="hidden"
-      />
-
-      {/* Photo layer — expands from thumbnail to full screen after capture */}
-      {photoSrc && (
-        <div
-          className="absolute inset-0 transition-all duration-500 ease-out"
-          style={{
-            transform: photoAnim ? 'scale(1)' : 'scale(0.85)',
-            opacity:   photoAnim ? 1 : 0,
-          }}
-        >
-          <img
-            src={photoSrc}
-            alt=""
-            className="w-full h-full object-cover"
-            style={{ filter: phase === 'loading' ? 'blur(4px)' : 'none', transition: 'filter 0.3s' }}
-          />
-          {/* dark overlay when loading */}
-          {phase === 'loading' && (
-            <div className="absolute inset-0 bg-black/50" />
-          )}
-        </div>
-      )}
-
-      {/* Viewfinder frame — only shown when idle and no photo yet */}
-      {phase === 'idle' && !photoSrc && (
-        <div className="absolute inset-0 pointer-events-none flex items-center justify-center">
-          {/* Darkened zones around the scan area */}
-          <div className="absolute top-0 left-0 right-0 h-[28%] bg-black/60" />
-          <div className="absolute bottom-0 left-0 right-0 h-[38%] bg-black/60" />
-          <div className="absolute left-0 top-[28%] bottom-[38%] w-[8%] bg-black/60" />
-          <div className="absolute right-0 top-[28%] bottom-[38%] w-[8%] bg-black/60" />
-
-          {/* Corner brackets */}
-          <div className="relative w-[84%] aspect-[3/2]">
-            {['top-0 left-0 border-t-4 border-l-4 rounded-tl-xl',
-              'top-0 right-0 border-t-4 border-r-4 rounded-tr-xl',
-              'bottom-0 left-0 border-b-4 border-l-4 rounded-bl-xl',
-              'bottom-0 right-0 border-b-4 border-r-4 rounded-br-xl',
-            ].map((cls, i) => (
-              <div key={i} className={`absolute w-10 h-10 border-white ${cls}`} />
-            ))}
-            {/* Animated scan line */}
-            <div
-              className="absolute left-0 right-0 h-0.5 bg-primary/80"
-              style={{ animation: 'scanline 2s ease-in-out infinite' }}
-            />
-          </div>
-        </div>
-      )}
-
-      {/* Header */}
-      <div className="relative z-10 flex items-center justify-between px-5 pt-12 pb-4">
-        <button
-          onClick={onClose}
-          className="w-10 h-10 rounded-full bg-black/40 flex items-center justify-center"
-        >
-          <span className="material-symbols-outlined text-white">close</span>
-        </button>
-        <h2 className="font-headline font-bold text-white text-lg">Scanner un produit</h2>
-        <div className="w-10" />
-      </div>
-
-      {/* Bottom controls */}
-      <div className="relative z-10 mt-auto px-4 pb-10 flex flex-col items-center gap-4">
-
-        {/* Loading spinner */}
-        {phase === 'loading' && (
-          <div className="flex flex-col items-center gap-3">
-            <div className="w-10 h-10 rounded-full border-4 border-white/30 border-t-white animate-spin" />
-            <p className="text-white/90 font-medium text-sm">Analyse du code-barres...</p>
-          </div>
-        )}
-
-        {/* Error state */}
-        {phase === 'error' && (
-          <div className="bg-black/80 rounded-2xl px-5 py-4 space-y-3 w-full">
-            <p className="text-red-400 text-sm text-center font-medium">{message}</p>
-            <div className="flex gap-3">
-              <button
-                onClick={resetToIdle}
-                className="flex-1 bg-white/20 text-white font-semibold text-sm py-3 rounded-full border border-white/30"
-              >
-                Réessayer
-              </button>
-              <button
-                onClick={() => { setPhase('manual'); setBarcode(null) }}
-                className="flex-1 bg-primary text-on-primary font-semibold text-sm py-3 rounded-full"
-              >
-                Saisir manuellement
-              </button>
-            </div>
-          </div>
-        )}
-
-        {/* Idle hint */}
-        {phase === 'idle' && (
-          <p className="text-white/80 text-sm text-center font-medium">
-            Prends une photo du code-barres
-          </p>
-        )}
-
-        {/* Shutter button — Apple Camera style */}
-        {phase === 'idle' && (
-          <button
-            onClick={triggerCapture}
-            aria-label="Prendre une photo"
-            className="w-20 h-20 rounded-full bg-white flex items-center justify-center shadow-xl active:scale-90 transition-transform duration-150"
-          >
-            <div className="w-16 h-16 rounded-full bg-white border-4 border-black/10" />
+  // ── Error ───────────────────────────────────────────────────────
+  if (phase === 'error') {
+    return (
+      <div className="fixed inset-0 z-[70] flex flex-col bg-surface">
+        <div className="flex items-center gap-3 px-5 py-4 border-b border-surface-container">
+          <button onClick={onClose} className="p-2 rounded-full hover:bg-surface-container transition-colors">
+            <span className="material-symbols-outlined text-primary">arrow_back</span>
           </button>
-        )}
+          <h2 className="font-headline font-bold text-lg">Erreur</h2>
+        </div>
 
-        {/* Manual entry fallback */}
-        {phase === 'idle' && (
+        <div className="flex-1 flex flex-col items-center justify-center px-8 gap-6 text-center">
+          <div className="w-16 h-16 rounded-full bg-red-50 flex items-center justify-center">
+            <span className="material-symbols-outlined text-red-400 text-3xl">error</span>
+          </div>
+          <div className="space-y-2">
+            <p className="font-headline font-bold text-on-surface">Une erreur est survenue</p>
+            <p className="text-sm text-outline">{errorMessage}</p>
+          </div>
+        </div>
+
+        <div className="px-5 pb-8 pt-3 space-y-3">
           <button
-            onClick={() => { setPhase('manual'); setBarcode(null) }}
-            className="bg-white/20 text-white font-semibold text-sm px-6 py-3 rounded-full border border-white/30 active:scale-95 transition-transform"
+            onClick={onRetry}
+            className="w-full bg-primary text-on-primary font-headline font-bold py-4 rounded-full shadow-lg shadow-primary/20 active:scale-[0.98] transition-all"
+          >
+            Réessayer
+          </button>
+          <button
+            onClick={() => setPhase('manual')}
+            className="w-full bg-surface-container text-on-surface font-headline font-semibold py-3.5 rounded-full active:scale-[0.98] transition-all"
           >
             Saisir manuellement
           </button>
-        )}
+        </div>
       </div>
-    </div>
-  )
+    )
+  }
+
+  return null
 }
