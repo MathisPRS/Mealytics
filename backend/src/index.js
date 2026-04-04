@@ -53,6 +53,8 @@ app.use(cors({
 
 // ── Body parsing — limit payload size ───────────────────────
 app.use((req, res, next) => {
+  // /api/scan-barcode accepts multipart/form-data — skip the JSON-only check
+  if (req.path === '/api/scan-barcode') return next();
   const ct = req.headers['content-type'];
   // For routes that accept JSON, reject non-JSON Content-Type
   if (req.method !== 'GET' && req.method !== 'DELETE' && ct && !ct.includes('application/json')) {
@@ -82,6 +84,7 @@ app.use('/api/journal',       require('./routes/journal'));
 app.use('/api/weight',        require('./routes/weight'));
 app.use('/api/recipes',       require('./routes/recipes'));
 app.use('/api/scanned-foods', require('./routes/scannedFoods'));
+app.use('/api/scan-barcode', require('./routes/scanBarcode'));
 app.use('/api',               require('./routes/user')); // profile, favorites, recents, water
 
 // ── Serve frontend static files (production) ──────────────

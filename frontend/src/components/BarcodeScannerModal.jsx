@@ -1,5 +1,5 @@
-import { useState, useEffect, useRef } from 'react'
-import { Html5Qrcode, Html5QrcodeSupportedFormats } from 'html5-qrcode'
+import { useState, useRef } from 'react'
+import { api } from '../utils/api'
 
 // ── Fetch product from Open Food Facts ─────────────────────────────
 async function fetchProductByBarcode(barcode) {
@@ -132,119 +132,83 @@ function ManualEntryForm({ barcode, prefillName, onConfirm, onCancel }) {
 }
 
 // ── Main scanner modal ──────────────────────────────────────────────
-const SCANNER_ID = 'html5qr-scanner-region'
-
 export default function BarcodeScannerModal({ onProductFound, onClose }) {
-  // scanning | loading | found | not_found | error | incomplete | manual
-  const [phase,    setPhase]    = useState('scanning')
+  // idle | loading | found | not_found | error | incomplete | manual
+  const [phase,    setPhase]    = useState('idle')
   const [message,  setMessage]  = useState('')
   const [product,  setProduct]  = useState(null)
   const [barcode,  setBarcode]  = useState(null)
   const [prefill,  setPrefill]  = useState('')
-  const [debugLog, setDebugLog] = useState(['Initialisation...'])
+  const [photoSrc, setPhotoSrc] = useState(null)   // data-URL of the taken photo
+  const [photoAnim, setPhotoAnim] = useState(false) // trigger expand animation
 
-  const scannerRef = useRef(null)
-  const stoppedRef = useRef(false)
+  const fileInputRef = useRef(null)
 
-  const addLog = (msg) => {
-    console.log('[Scanner]', msg)
-    setDebugLog(prev => [...prev.slice(-6), msg])
+  const handleBarcode = async (ean) => {
+    setBarcode(ean)
+    setPhase('loading')
+    try {
+      const prod = await fetchProductByBarcode(ean)
+      if (!prod) {
+        setPhase('not_found')
+      } else if (prod.incomplete) {
+        setPrefill(prod.name)
+        setPhase('incomplete')
+      } else {
+        setProduct(prod)
+        setPhase('found')
+      }
+    } catch (e) {
+      setMessage(`Impossible de contacter Open Food Facts : ${e.message}`)
+      setPhase('error')
+    }
   }
 
-  useEffect(() => {
-    if (phase !== 'scanning') return
+  const handleFileChange = async (e) => {
+    const file = e.target.files?.[0]
+    if (!file) return
 
-    stoppedRef.current = false
-    addLog('Création du scanner html5-qrcode...')
-
-    const scanner = new Html5Qrcode(SCANNER_ID, { verbose: false })
-    scannerRef.current = scanner
-
-    const config = {
-      fps: 10,
-      qrbox: { width: 250, height: 150 },
-      formatsToSupport: [
-        Html5QrcodeSupportedFormats.EAN_13,
-        Html5QrcodeSupportedFormats.EAN_8,
-        Html5QrcodeSupportedFormats.UPC_A,
-        Html5QrcodeSupportedFormats.UPC_E,
-        Html5QrcodeSupportedFormats.CODE_128,
-      ],
-      rememberLastUsedCamera: false,
-      showTorchButtonIfSupported: false,
-    }
-
-    addLog('Demande accès caméra (facingMode: environment)...')
-
-    scanner.start(
-      { facingMode: 'environment' },
-      config,
-      async (decodedText) => {
-        if (stoppedRef.current) return
-        stoppedRef.current = true
-
-        addLog(`Code détecté : ${decodedText}`)
-
-        try { await scanner.stop() } catch (e) { addLog(`stop() err: ${e.message}`) }
-
-        setBarcode(decodedText)
-        setPhase('loading')
-
-        addLog('Recherche sur Open Food Facts...')
-        try {
-          const prod = await fetchProductByBarcode(decodedText)
-          if (!prod) {
-            addLog('Produit non trouvé dans OFF')
-            setPhase('not_found')
-          } else if (prod.incomplete) {
-            addLog(`Produit trouvé (incomplet) : ${prod.name}`)
-            setPrefill(prod.name)
-            setPhase('incomplete')
-          } else {
-            addLog(`Produit trouvé : ${prod.name}`)
-            setProduct(prod)
-            setPhase('found')
-          }
-        } catch (e) {
-          addLog(`Erreur OFF : ${e.message}`)
-          setMessage(`Impossible de contacter Open Food Facts : ${e.message}`)
-          setPhase('error')
-        }
-      },
-      (err) => {
-        // Erreurs de scan frame par frame — on ignore "No MultiFormat Readers"
-        if (!err?.includes('No MultiFormat')) {
-          addLog(`Frame err: ${err}`)
-        }
-      }
-    )
-    .then(() => {
-      addLog('Caméra démarrée avec succès')
+    // Show the photo expanding into place
+    const url = URL.createObjectURL(file)
+    setPhotoSrc(url)
+    setPhotoAnim(false)
+    // Trigger reflow then start animation
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => setPhotoAnim(true))
     })
-    .catch(err => {
-      const msg = err?.message || String(err)
-      addLog(`ERREUR démarrage: ${msg}`)
-      let userMsg = `Erreur caméra : ${msg}`
-      if (msg.includes('NotAllowedError') || msg.includes('Permission')) {
-        userMsg = 'Accès à la caméra refusé. Autorise la caméra dans les réglages du navigateur.'
-      } else if (msg.includes('NotFoundError') || msg.includes('not found')) {
-        userMsg = 'Aucune caméra détectée. Essaie de changer la caméra ou utilise la saisie manuelle.'
-      }
-      setMessage(userMsg)
-      setPhase('error')
-    })
+    setPhase('loading')
 
-    return () => {
-      stoppedRef.current = true
-      if (scannerRef.current) {
-        scannerRef.current.stop().catch(() => {})
+    // Reset input so the same photo can be retried if needed
+    e.target.value = ''
+
+    try {
+      const { barcode: ean } = await api.scan.fromImage(file)
+      await handleBarcode(ean)
+    } catch (err) {
+      if (err.message?.includes('404') || err.message?.includes('Aucun code-barres')) {
+        setPhase('not_found')
+      } else {
+        setMessage(`Erreur lors de l'analyse : ${err.message}`)
+        setPhase('error')
       }
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }
 
-  // ── Phases UI ──────────────────────────────────────────────────
+  const triggerCapture = () => {
+    fileInputRef.current?.click()
+  }
 
+  const resetToIdle = () => {
+    setPhase('idle')
+    setPhotoSrc(null)
+    setPhotoAnim(false)
+    setProduct(null)
+    setBarcode(null)
+    setPrefill('')
+    setMessage('')
+  }
+
+  // ── Manual / not_found / incomplete → form ─────────────────────
   if (phase === 'manual' || phase === 'not_found' || phase === 'incomplete') {
     return (
       <div className="fixed inset-0 z-[70] flex flex-col bg-surface">
@@ -258,6 +222,7 @@ export default function BarcodeScannerModal({ onProductFound, onClose }) {
     )
   }
 
+  // ── Found ───────────────────────────────────────────────────────
   if (phase === 'found' && product) {
     return (
       <div className="fixed inset-0 z-[70] flex flex-col bg-surface">
@@ -316,68 +281,68 @@ export default function BarcodeScannerModal({ onProductFound, onClose }) {
     )
   }
 
-  // ── Vue caméra (scanning / loading / error) ────────────────────
+  // ── Camera view (idle / loading / error) ───────────────────────
   return (
     <div className="fixed inset-0 z-[70] bg-black flex flex-col overflow-hidden">
 
-      {/*
-        html5-qrcode injecte une <video> et un <canvas> directement dans ce div.
-        On le laisse remplir tout l'écran sans Tailwind qui interfère.
-        Le style inline évite les conflits avec les classes utilitaires.
-      */}
-      <div
-        id={SCANNER_ID}
-        style={{
-          position: 'absolute',
-          inset: 0,
-          width: '100%',
-          height: '100%',
-          overflow: 'hidden',
-        }}
+      {/* Hidden file input — native camera capture */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/*"
+        capture="environment"
+        onChange={handleFileChange}
+        className="hidden"
       />
 
-      {/* Supprimer le style injecté par html5-qrcode (bordures, boutons) via CSS global */}
-      <style>{`
-        #${SCANNER_ID} > * { box-sizing: border-box; }
-        #${SCANNER_ID} video {
-          position: absolute !important;
-          inset: 0 !important;
-          width: 100% !important;
-          height: 100% !important;
-          object-fit: cover !important;
-        }
-        #${SCANNER_ID} canvas { display: none !important; }
-        #${SCANNER_ID} img { display: none !important; }
-        #${SCANNER_ID} #qr-shaded-region { display: none !important; }
-        #${SCANNER_ID} button { display: none !important; }
-        #${SCANNER_ID} select { display: none !important; }
-        #${SCANNER_ID} span { display: none !important; }
-      `}</style>
-
-      {/* Overlay sombre + cadre visuel */}
-      <div className="absolute inset-0 pointer-events-none flex flex-col items-center justify-center">
-        <div className="absolute top-0 left-0 right-0 h-[28%] bg-black/60" />
-        <div className="absolute bottom-0 left-0 right-0 h-[38%] bg-black/60" />
-        <div className="absolute left-0 top-[28%] bottom-[38%] w-[8%] bg-black/60" />
-        <div className="absolute right-0 top-[28%] bottom-[38%] w-[8%] bg-black/60" />
-
-        <div className="relative w-[84%] aspect-[3/2]">
-          {['top-0 left-0 border-t-4 border-l-4 rounded-tl-lg',
-            'top-0 right-0 border-t-4 border-r-4 rounded-tr-lg',
-            'bottom-0 left-0 border-b-4 border-l-4 rounded-bl-lg',
-            'bottom-0 right-0 border-b-4 border-r-4 rounded-br-lg',
-          ].map((cls, i) => (
-            <div key={i} className={`absolute w-8 h-8 border-white ${cls}`} />
-          ))}
-
-          {phase === 'scanning' && (
-            <div
-              className="absolute left-2 right-2 top-0 h-0.5 bg-primary/80"
-              style={{ animation: 'scanline 2s ease-in-out infinite' }}
-            />
+      {/* Photo layer — expands from thumbnail to full screen after capture */}
+      {photoSrc && (
+        <div
+          className="absolute inset-0 transition-all duration-500 ease-out"
+          style={{
+            transform: photoAnim ? 'scale(1)' : 'scale(0.85)',
+            opacity:   photoAnim ? 1 : 0,
+          }}
+        >
+          <img
+            src={photoSrc}
+            alt=""
+            className="w-full h-full object-cover"
+            style={{ filter: phase === 'loading' ? 'blur(4px)' : 'none', transition: 'filter 0.3s' }}
+          />
+          {/* dark overlay when loading */}
+          {phase === 'loading' && (
+            <div className="absolute inset-0 bg-black/50" />
           )}
         </div>
-      </div>
+      )}
+
+      {/* Viewfinder frame — only shown when idle and no photo yet */}
+      {phase === 'idle' && !photoSrc && (
+        <div className="absolute inset-0 pointer-events-none flex items-center justify-center">
+          {/* Darkened zones around the scan area */}
+          <div className="absolute top-0 left-0 right-0 h-[28%] bg-black/60" />
+          <div className="absolute bottom-0 left-0 right-0 h-[38%] bg-black/60" />
+          <div className="absolute left-0 top-[28%] bottom-[38%] w-[8%] bg-black/60" />
+          <div className="absolute right-0 top-[28%] bottom-[38%] w-[8%] bg-black/60" />
+
+          {/* Corner brackets */}
+          <div className="relative w-[84%] aspect-[3/2]">
+            {['top-0 left-0 border-t-4 border-l-4 rounded-tl-xl',
+              'top-0 right-0 border-t-4 border-r-4 rounded-tr-xl',
+              'bottom-0 left-0 border-b-4 border-l-4 rounded-bl-xl',
+              'bottom-0 right-0 border-b-4 border-r-4 rounded-br-xl',
+            ].map((cls, i) => (
+              <div key={i} className={`absolute w-10 h-10 border-white ${cls}`} />
+            ))}
+            {/* Animated scan line */}
+            <div
+              className="absolute left-0 right-0 h-0.5 bg-primary/80"
+              style={{ animation: 'scanline 2s ease-in-out infinite' }}
+            />
+          </div>
+        </div>
+      )}
 
       {/* Header */}
       <div className="relative z-10 flex items-center justify-between px-5 pt-12 pb-4">
@@ -391,47 +356,65 @@ export default function BarcodeScannerModal({ onProductFound, onClose }) {
         <div className="w-10" />
       </div>
 
-      {/* Bottom panel */}
-      <div className="relative z-10 mt-auto px-5 pb-6 flex flex-col items-center gap-3">
-        {phase === 'scanning' && (
-          <>
-            <p className="text-white/80 text-sm text-center font-medium">
-              Pointe la caméra vers le code-barres du produit
-            </p>
-            <button
-              onClick={() => { setPhase('manual'); setBarcode(null) }}
-              className="bg-white/20 text-white font-semibold text-sm px-6 py-3 rounded-full border border-white/30 active:scale-95 transition-transform"
-            >
-              Saisir manuellement
-            </button>
-          </>
-        )}
+      {/* Bottom controls */}
+      <div className="relative z-10 mt-auto px-4 pb-10 flex flex-col items-center gap-4">
 
+        {/* Loading spinner */}
         {phase === 'loading' && (
-          <div className="flex items-center gap-3 bg-black/50 rounded-2xl px-6 py-4">
-            <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-            <p className="text-white font-medium text-sm">Recherche du produit...</p>
+          <div className="flex flex-col items-center gap-3">
+            <div className="w-10 h-10 rounded-full border-4 border-white/30 border-t-white animate-spin" />
+            <p className="text-white/90 font-medium text-sm">Analyse du code-barres...</p>
           </div>
         )}
 
+        {/* Error state */}
         {phase === 'error' && (
           <div className="bg-black/80 rounded-2xl px-5 py-4 space-y-3 w-full">
             <p className="text-red-400 text-sm text-center font-medium">{message}</p>
-            <button
-              onClick={() => { setPhase('manual'); setBarcode(null) }}
-              className="w-full bg-primary text-on-primary font-semibold text-sm py-3 rounded-full active:scale-95 transition-transform"
-            >
-              Saisir manuellement
-            </button>
+            <div className="flex gap-3">
+              <button
+                onClick={resetToIdle}
+                className="flex-1 bg-white/20 text-white font-semibold text-sm py-3 rounded-full border border-white/30"
+              >
+                Réessayer
+              </button>
+              <button
+                onClick={() => { setPhase('manual'); setBarcode(null) }}
+                className="flex-1 bg-primary text-on-primary font-semibold text-sm py-3 rounded-full"
+              >
+                Saisir manuellement
+              </button>
+            </div>
           </div>
         )}
 
-        {/* Debug log — visible à l'écran pour faciliter les tests */}
-        <div className="w-full bg-black/70 rounded-xl px-4 py-3 font-mono text-[10px] text-green-400 space-y-0.5">
-          {debugLog.map((line, i) => (
-            <div key={i}>{line}</div>
-          ))}
-        </div>
+        {/* Idle hint */}
+        {phase === 'idle' && (
+          <p className="text-white/80 text-sm text-center font-medium">
+            Prends une photo du code-barres
+          </p>
+        )}
+
+        {/* Shutter button — Apple Camera style */}
+        {phase === 'idle' && (
+          <button
+            onClick={triggerCapture}
+            aria-label="Prendre une photo"
+            className="w-20 h-20 rounded-full bg-white flex items-center justify-center shadow-xl active:scale-90 transition-transform duration-150"
+          >
+            <div className="w-16 h-16 rounded-full bg-white border-4 border-black/10" />
+          </button>
+        )}
+
+        {/* Manual entry fallback */}
+        {phase === 'idle' && (
+          <button
+            onClick={() => { setPhase('manual'); setBarcode(null) }}
+            className="bg-white/20 text-white font-semibold text-sm px-6 py-3 rounded-full border border-white/30 active:scale-95 transition-transform"
+          >
+            Saisir manuellement
+          </button>
+        )}
       </div>
     </div>
   )

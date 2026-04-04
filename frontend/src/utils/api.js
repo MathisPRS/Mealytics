@@ -84,6 +84,24 @@ export const api = {
     update: (date, delta) => request('/api/water', { method: 'POST', body: { date, delta } }),
   },
 
+  // ── Scan barcode from image ───────────────────────────────
+  scan: {
+    fromImage: (file) => {
+      const token = getToken();
+      const formData = new FormData();
+      formData.append('image', file);
+      return fetch(`${BASE_URL}/api/scan-barcode`, {
+        method: 'POST',
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        body: formData,
+      }).then(async (res) => {
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+        return data;
+      });
+    },
+  },
+
   // ── Scanned foods ─────────────────────────────────────────
   scannedFoods: {
     getAll: () => request('/api/scanned-foods'),
